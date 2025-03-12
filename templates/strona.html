@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Pilot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f2f2f2;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: 100px 100px 100px;
+            grid-template-rows: 100px 100px 100px;
+            gap: 10px;
+        }
+
+        .button {
+            display: block;
+            width: 80px;
+            height: 80px;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            user-select: none;
+            touch-action: none;
+            align-self: center;
+            justify-self: center;
+        }
+
+        .button:hover {
+            background-color: #45a049;
+        }
+
+        .input-field {
+            margin-bottom: 20px;
+            padding: 10px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+
+        .up {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        .left {
+            grid-column: 1;
+            grid-row: 2;
+        }
+
+        .down {
+            grid-column: 2;
+            grid-row: 3;
+        }
+
+        .right {
+            grid-column: 3;
+            grid-row: 2;
+        }
+
+        .photo {
+            grid-column: 2;
+            grid-row: 2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <input type="text" id="photo_name" class="input-field" placeholder="Enter photo name">
+        <div class="controls">
+            <button class="button up" onmousedown="startCommand('forward')" onmouseup="stopCommand()" ontouchstart="startCommand('forward')" ontouchend="stopCommand()">↑</button>
+            <button class="button left" onmousedown="startCommand('left')" onmouseup="stopCommand()" ontouchstart="startCommand('left')" ontouchend="stopCommand()">←</button>
+            <button class="button down" onmousedown="startCommand('backward')" onmouseup="stopCommand()" ontouchstart="startCommand('backward')" ontouchend="stopCommand()">↓</button>
+            <button class="button right" onmousedown="startCommand('right')" onmouseup="stopCommand()" ontouchstart="startCommand('right')" ontouchend="stopCommand()">→</button>
+            <button class="button photo" onclick="takePhoto()">Photo</button>
+        </div>
+    </div>
+    <script>
+        function startCommand(command) {
+            fetch('/' + command);
+        }
+
+        function stopCommand() {
+            fetch('/stop');
+        }
+
+        function takePhoto() {
+            const photoName = document.getElementById('photo_name').value;
+            if (photoName) {
+                fetch('/takePhoto', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `photo_name=${photoName}`
+                });
+            } else {
+                alert('Please enter a photo name.');
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Przewijane Zdjęcia</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #container {
+            display: flex;
+            align-items: flex-start; /* Align items at the top */
+            justify-content: center;
+            flex-direction: row; /* Arrange items horizontally */
+        }
+
+        #photo-container {
+            max-width: 70%;
+            max-height: 100%;
+            overflow: hidden;
+            margin-right: 20px; /* Margin between photo and map */
+        }
+
+        #map-container {
+            top:200px;
+            max-width: 30%;
+            max-height: 100%;
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            margin-left: 20px; /* Margin between photo and map */
+            margin-right: 50px; /* Margin between photo and map */
+        }
+
+        .photo-container-inner, .map-container-inner {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+
+        .photo, .map {
+            display: block;
+            margin: 0 auto;
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+
+        .arrow {
+            position: absolute;
+            font-size: 24px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .arrow-left {
+            left: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .arrow-right {
+            right: 520px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .arrow-up {
+            position: absolute;
+            top: 20px;
+            left: 470px;
+            transform: translateX(-30%);
+        }
+
+        .arrow-down {
+            position: absolute;
+            bottom: 20px;
+            left: 470px;
+            transform: translateX(-33%);
+        }
+
+        /* Stylizacja punktu na mapie */
+        .point {
+            position: absolute;
+            width: 6px; /* Szerokość punktu */
+            height: 6px; /* Wysokość punktu */
+            background-color: red;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none; /* Domyślnie ukrywamy punkty */
+        }
+
+        /* Stylizacja wyboru piętra */
+        #floor-selector {
+            position: absolute;
+            top: 1px; /* Odległość od góry */
+            margin-left:5px;
+            z-index: 10; /* Nadaje z-index, aby wyświetlać na górze */
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="photo-container">
+            <div class="photo-container-inner">
+                <img id="current-photo" src="{{ url_for('static', filename='Korytarz1.jpg') }}" alt="Zdjęcie" class="photo" style="max-width: 80%; max-height: 100%;">
+            </div>
+        </div>
+        <div id="map-container">
+            <div class="map-container-inner">
+                <!-- Wybór piętra kampusu -->
+                <select id="floor-selector" onchange="changeFloor()">
+                    <option value="1">Piętro 1</option>
+                    <option value="2">Piętro 2</option>
+                    <option value="3">Piętro 3</option>
+                </select>
+                <!-- Mapa kampusu -->
+                <img id="map" src="{{ url_for('static', filename='kampus.png') }}" alt="Mapa" class="map" style="max-width: 100%; max-height: 100%;" onclick="handleMapClick(event)">
+            </div>
+        </div>
+    </div>
+
+    <!-- Dodajemy przyciski nawigacyjne -->
+    <button class="arrow arrow-up" onclick="showUpPhoto()">&#9650;</button>
+    <button class="arrow arrow-left" onclick="showLeftPhoto()">&#10094;</button>
+    <button class="arrow arrow-right" onclick="showRightPhoto()">&#10095;</button>
+    <button class="arrow arrow-down" onclick="showDownPhoto()">&#9660;</button>
+
+    <script>
+        const photos = {{ photos|tojson }};
+        let currentPhotoIndex = 0;
+        currentPhotoIndex = photos.findIndex(photo => photo.includes("Korytarz1.jpg"));
+        // Graf nawigacji dla trzech pięter kampusu
+        const photoGraph = {
+    "1004": { "left": "Lewo1004", "right": "Prawo1004", "up": "1006", "down": "1004tyl" },
+    "1004tyl": { "left": "Lewo1004tyl", "right": "Prawo1004tyl", "up": "LewoKorytarz2", "down": "1004" },
+    "1006": { "left": "Lewo1006", "right": "Prawo1006", "up": "1009", "down": "1006tyl" },
+    "1006tyl": { "left": "Lewo1006tyl", "right": "Prawo1006tyl", "up": "1004tyl", "down": "1006" },
+    "1009": { "left": "Lewo1009", "right": "Prawo1009", "up": "1008", "down": "1009tyl" },
+    "1009tyl": { "left": "Lewo1009tyl", "right": "Prawo1009tyl", "up": "1006tyl", "down": "1009" },
+    "1008": { "left": "Lewo1008", "right": "Prawo1008", "up": "1013", "down": "1008tyl" },
+    "1008tyl": { "left": "Lewo1008tyl", "right": "Prawo1008tyl", "up": "1009tyl", "down": "1008" },
+    "1013": { "left": "Lewo1013", "right": "Prawo1013", "up": "1010", "down": "1013tyl" },
+    "1013tyl": { "left": "Lewo1013tyl", "right": "Prawo1013tyl", "up": "1008tyl", "down": "1013" },
+    "1010": { "left": "Lewo1010", "right": "Prawo1010", "up": "1015", "down": "1010tyl" },
+    "1010tyl": { "left": "Lewo1010tyl", "right": "Prawo1010tyl", "up": "1013tyl", "down": "1010" },
+    "1015": { "left": "Lewo1015", "right": "Prawo1015", "up": "1012", "down": "1015tyl" },
+    "1015tyl": { "left": "Lewo1015tyl", "right": "Prawo1015tyl", "up": "1010tyl", "down": "1015" },
+    "1012": { "left": "Lewo1012", "right": "Prawo1012", "up": "1017", "down": "1012tyl" },
+    "1012tyl": { "left": "Lewo1012tyl", "right": "Prawo1012tyl", "up": "1015tyl", "down": "1012" },
+    "1017": { "left": "Lewo1017", "right": "Prawo1017", "up": "1019", "down": "1017tyl" },
+    "1017tyl": { "left": "Lewo1017tyl", "right": "Prawo1017tyl", "up": "1012tyl", "down": "1017" },
+    "1019": { "left": "Lewo1019", "right": "Prawo1019", "up": "1014", "down": "1019tyl" },
+    "1019tyl": { "left": "Lewo1019tyl", "right": "Prawo1019tyl", "up": "1017tyl", "down": "1019" },
+    "1014": { "left": "Lewo1014", "right": "Prawo1014", "up": "1016", "down": "1014tyl" },
+    "1014tyl": { "left": "Lewo1014tyl", "right": "Prawo1014tyl", "up": "1019tyl", "down": "1014" },
+    "1016": { "left": "Lewo1016", "right": "Prawo1016", "up": "Korytarz1018", "down": "1016tyl" },
+    "1016tyl": { "left": "Lewo1016tyl", "right": "Prawo1016tyl", "up": "1014tyl", "down": "1016" },
+    "Korytarz1018": { "left": "LewoKorytarz1018", "right": "PrawoKorytarz1018", "up": null, "down": "Korytarz1018tyl" },
+    "Korytarz1018tyl": { "left": "PrawoKorytarz1018", "right": "LewoKorytarz1018", "up": "1016tyl", "down": "Korytarz1018" },
+    "Korytarz1021": { "left": "LewoKorytarz1021", "right": "PrawoKorytarz1021", "up": "1021", "down": "Korytarz1021tyl" },
+    "Korytarz1021tyl": { "left": "LewoKorytarz1021tyl", "right": "PrawoKorytarz1021tyl", "up": "LewoKorytarz1018tyl", "down": "Korytarz1021" },
+
+    "1021": { "left": "Lewo1021", "right": "Prawo1021", "up": "1023", "down": "1021tyl" },
+    "1021tyl": { "left": "Lewo1021tyl", "right": "Prawo1021tyl", "up": "Korytarz1021tyl", "down": "1021" },
+    "1023": { "left": "Lewo1023", "right": "Prawo1023", "up": "1025", "down": "1023tyl" },
+    "1023tyl": { "left": "Lewo1023tyl", "right": "Prawo1023tyl", "up": "1021tyl", "down": "1023" },
+    "1025": { "left": "Lewo1025", "right": "Prawo1025", "up": "1027", "down": "1025tyl" },
+    "1025tyl": { "left": "Lewo1025tyl", "right": "Prawo1025tyl", "up": "1023tyl", "down": "1025" },
+    "1027": { "left": "Lewo1027", "right": "Prawo1027", "up": "1032", "down": "1027tyl" },
+    "1027tyl": { "left": "Lewo1027tyl", "right": "Prawo1027tyl", "up": "1025tyl", "down": "1027" },
+    "1032": { "left": "Lewo1032", "right": "Prawo1032", "up": "1029", "down": "1032tyl" },
+    "1032tyl": { "left": "Lewo1032tyl", "right": "Prawo1032tyl", "up": "1027tyl", "down": "1032" },
+    "1029": { "left": "Lewo1029", "right": "Prawo1029", "up": "1031", "down": "1029tyl" },
+    "1029tyl": { "left": "Lewo1029tyl", "right": "Prawo1029tyl", "up": "1032tyl", "down": "1029" },
+    "1031": { "left": "Lewo1031", "right": "Prawo1031", "up": "1036", "down": "1031tyl" },
+    "1031tyl": { "left": "Lewo1031tyl", "right": "Prawo1031tyl", "up": "1029tyl", "down": "1031" },
+    "1036": { "left": "Lewo1036", "right": "Prawo1036", "up": "1033", "down": "1036tyl" },
+    "1036tyl": { "left": "Lewo1036tyl", "right": "Prawo1036tyl", "up": "1031tyl", "down": "1036" },
+    "1033": { "left": "Lewo1033", "right": "Prawo1033", "up": "1038", "down": "1033tyl" },
+    "1033tyl": { "left": "Lewo1033tyl", "right": "Prawo1033tyl", "up": "1036tyl", "down": "1033" },
+    "1038": { "left": "Lewo1038", "right": "Prawo1038", "up": "1037", "down": "1038tyl" },
+    "1038tyl": { "left": "Lewo1038tyl", "right": "Prawo1038tyl", "up": "1033tyl", "down": "1038" },
+    "1037": { "left": "Lewo1037", "right": "Prawo1037", "up": null, "down": "1037tyl" },
+    "1037tyl": { "left": "Prawo1037", "right": "Prawo1037tyl", "up": "1038tyl", "down": "1037" },
+    "1034": { "left": "Lewo1034", "right": "Prawo1034", "up": "1029", "down": "1034tyl" },
+    "1034tyl": { "left": "Lewo1034tyl", "right": "Prawo1034tyl", "up": "1037tyl", "down": "1034" },
+    "1035": { "left": "Lewo1035", "right": "Prawo1035", "up": "1036", "down": "1035tyl" },
+    "1035tyl": { "left": "Lewo1035tyl", "right": "Prawo1035tyl", "up": "1034tyl", "down": "1035" },
+    "1039": { "left": "Lewo1039", "right": "Prawo1039", "up": "1041", "down": "1039tyl" },
+    "1039tyl": { "left": "Lewo1039tyl", "right": "Prawo1039tyl", "up": "Lewo1037", "down": "1039" },
+    "1041": { "left": "Lewo1041", "right": "Prawo1041", "up": "1043", "down": "1041tyl" },
+    "1041tyl": { "left": "Lewo1041tyl", "right": "Prawo1041tyl", "up": "1039tyl", "down": "1041" },
+    "1043": { "left": "Lewo1043", "right": "Prawo1043", "up": null, "down": "1043tyl" },
+    "1043tyl": { "left": "Lewo1043tyl", "right": "Prawo1043tyl", "up": "1041tyl", "down": "1043" },
+
+    "1049": { "left": "Lewo1049", "right": "Prawo1049", "up": "1051", "down": "1049tyl" },
+    "1049tyl": { "left": "Lewo1049tyl", "right": "Prawo1049tyl", "up": "Korytarz2tyl", "down": "1049" },
+    "1051": { "left": "Lewo1051", "right": "Prawo1051", "up": "1053", "down": "1051tyl" },
+    "1051tyl": { "left": "Lewo1051tyl", "right": "Prawo1051tyl", "up": "1049tyl", "down": "1051" },
+    "1053": { "left": "Lewo1053", "right": "Prawo1053", "up": "1055", "down": "1053tyl" },
+    "1053tyl": { "left": "Lewo1053tyl", "right": "Prawo1053tyl", "up": "1051tyl", "down": "1053" },
+    "1055": { "left": "Lewo1055", "right": "Prawo1055", "up": "Aula1056", "down": "1055tyl" },
+    "1055tyl": { "left": "Lewo1055tyl", "right": "Prawo1055tyl", "up": "1053tyl", "down": "1055" },
+    "2002": { "left": "Lewo2002", "right": "Prawo2002", "up": null, "down": "2002tyl" },
+    "2002tyl": { "left": "Lewo2002tyl", "right": "Prawo2002tyl", "up": "1055tyl", "down": null },
+    "2039": { "left": "Lewo2039", "right": "Prawo2039", "up": null, "down": "2039tyl" },
+    "2039tyl": { "left": "Lewo2039tyl", "right": "Prawo2039tyl", "up": "2039", "down": null },
+    "Aula1056": { "left": "LewoAula1056", "right": "PrawoAula1056", "up": null, "down": "Aula1056tyl" },
+    "Aula1056tyl": { "left": "PrawoAula1056", "right": "LewoAula1056", "up": "1055tyl", "down": "Aula1056" },
+    "Korytarz1": { "left": "LewoKorytarz1", "right": "PrawoKorytarz1", "up": "Korytarz2", "down": "Korytarz1tyl" },
+    "Korytarz1tyl": { "left": "LewoKorytarz1tyl", "right": "PrawoKorytarz1tyl", "up": null, "down": "Korytarz1" },
+    "Korytarz2": { "left": "LewoKorytarz2", "right": "PrawoKorytarz2", "up": "Schody1", "down": "Korytarz2tyl" },
+    "Korytarz2tyl": { "left": "PrawoKorytarz2", "right": "LewoKorytarz2", "up": "Korytarz1tyl", "down": "Korytarz2"},
+    "Korytarz5": { "left": "LewoKorytarz5", "right": "PrawoKorytarz5", "up": null, "down": "Korytarz5tyl" },
+    "Korytarz5tyl": { "left": "LewoKorytarz5tyl", "right": "PrawoKorytarz5tyl", "up": "Korytarz5", "down": null },
+    "Schody1": { "left": null, "right": null, "up": "P1", "down": "Schody1tyl" },
+    "Schody1tyl": { "left": null, "right": null, "up": "Korytarz2tyl", "down": "Schody1" },
+    "P1": { "left": null, "right": "Prawop1", "up": "P1korytarz", "down": "P1tyl" },
+    "P1tyl": { "left": "Prawop1", "right": null, "up": "Schody1tyl", "down": "P1" },
+    "P1korytarz": { "left": "Lewop1korytarz", "right": "Prawop1korytarz", "up": null, "down": "P1korytarztyl" },
+    "P1korytarztyl": { "left": "Prawop1korytarz", "right": "Lewop1korytarz", "up": "P1tyl", "down": "P1korytarz" },
+
+    "2002": { "left": "Lewo2002", "right": "Prawo2002", "up": "2001", "down": "2002tyl" },
+    "2002tyl": { "left": "Lewo2002tyl", "right": "Prawo2002tyl", "up": "Prawop1korytarz", "down": "2002" },
+
+    "2001": { "left": "Lewo2001", "right": "Prawo2001", "up": "2006", "down": "2001tyl" },
+    "2001tyl": { "left": "Lewo2001tyl", "right": "Prawo2001tyl", "up": "2002tyl", "down": "2001" },
+
+    "2006": { "left": "Lewo2006", "right": "Prawo2006", "up": "2003", "down": "2006tyl" },
+    "2006tyl": { "left": "Lewo2006tyl", "right": "Prawo2006tyl", "up": "2001tyl", "down": "2006" },
+
+    "2003": { "left": "Lewo2003", "right": "Prawo2003", "up": "2005", "down": "2003tyl" },
+    "2003tyl": { "left": "Lewo2003tyl", "right": "Prawo2003tyl", "up": "2006tyl", "down": "2003" },
+
+    "2005": { "left": "Lewo2005", "right": "Prawo2005", "up": "2007", "down": "2005tyl" },
+    "2005tyl": { "left": "Lewo2005tyl", "right": "Prawo2005tyl", "up": "2003tyl", "down": "2005" },
+
+    "2007": { "left": "Lewo2007", "right": "Prawo2007", "up": "2009", "down": "2007tyl" },
+    "2007tyl": { "left": "Lewo2007tyl", "right": "Prawo2007tyl", "up": "2005tyl", "down": "2007" },
+
+    "2009": { "left": "Lewo2009", "right": "Prawo2009", "up": "2010", "down": "2009tyl" },
+    "2009tyl": { "left": "Lewo2009tyl", "right": "Prawo2009tyl", "up": "2007tyl", "down": "2009" },
+
+    "2010": { "left": "Lewo2010", "right": "Prawo2010", "up": "2012", "down": "2010tyl" },
+    "2010tyl": { "left": "Lewo2010tyl", "right": "Prawo2010tyl", "up": "2009tyl", "down": "2010" },
+
+    "2012": { "left": "Lewo2012", "right": "Prawo2012", "up": null, "down": "2012tyl" },
+    "2012tyl": { "left": "Prawo2012", "right": "Lewo2012", "up": "2010tyl", "down": "2012" },
+
+    "2017": { "left": "Lewo2017", "right": "Prawo2017", "up": "2019", "down": "2017tyl" },
+    "2017tyl": { "left": "Lewo2017tyl", "right": "Prawo2017tyl", "up": "Prawo2012", "down": "2017" },
+
+    "2019": { "left": "Lewo2019", "right": "Prawo2019", "up": "2021", "down": "2018tyl" },
+    "2019tyl": { "left": "Lewo2019tyl", "right": "Prawo2019tyl", "up": "2017tyl", "down": "2019" },
+
+    "2021": { "left": "Lewo2021", "right": "Prawo2021", "up": "2020", "down": "2021tyl" },
+    "2021tyl": { "left": "Lewo2021tyl", "right": "Prawo2021tyl", "up": "2019tyl", "down": "2021" },
+
+    "2020": { "left": "Lewo2020", "right": "Prawo2020", "up": "2023", "down": "2020tyl" },
+    "2020tyl": { "left": "Lewo2020tyl", "right": "Prawo2020tyl", "up": "2021tyl", "down": "2020" },
+
+    "2023": { "left": "Lewo2023", "right": "Prawo2023", "up": "2025", "down": "2023tyl" },
+    "2023tyl": { "left": "Lewo2023tyl", "right": "Prawo2023tyl", "up": "2020tyl", "down": "2023" },
+
+    "2025": { "left": "Lewo2025", "right": "Prawo2025", "up": "2024", "down": "2025tyl" },
+    "2025tyl": { "left": "Lewo2025tyl", "right": "Prawo2025tyl", "up": "2023tyl", "down": "2025" },
+
+    "2024": { "left": "Lewo2024", "right": "Prawo2024", "up": "2026", "down": "2024tyl" },
+    "2024tyl": { "left": "Lewo2024tyl", "right": "Prawo2024tyl", "up": "2025tyl", "down": "2024" },
+
+    "2026": { "left": "Lewo2026", "right": "Prawo2026", "up": "2029", "down": "2026tyl" },
+    "2026tyl": { "left": "Lewo2026tyl", "right": "Prawo2026tyl", "up": "2024tyl", "down": "2026" },
+
+    "2029": { "left": "Lewo2029", "right": "Prawo2029", "up": "2028", "down": "2029tyl" },
+    "2029tyl": { "left": "Lewo2029tyl", "right": "Prawo2029tyl", "up": "2026tyl", "down": "2029" },
+
+    "2028": { "left": "Lewo2028", "right": "Prawo2028", "up": "2031", "down": "2028tyl" },
+    "2028tyl": { "left": "Lewo2028tyl", "right": "Prawo2028tyl", "up": "2029tyl", "down": "2028" },
+
+    "2031": { "left": "Lewo2031", "right": "Prawo2031", "up": "2033", "down": "2031tyl" },
+    "2031tyl": { "left": "Lewo2031tyl", "right": "Prawo2031tyl", "up": "2028tyl", "down": "2031" },
+
+    "2033": { "left": "Lewo2033", "right": "Prawo2033", "up": null, "down": "2033tyl" },
+    "2033tyl": { "left": "Lewo2033tyl", "right": "Prawo2033tyl", "up": "2031tyl", "down": "2033" },
+
+    "2035": { "left": "Lewo2035", "right": "Prawo2035", "up": "2037", "down": "2035tyl" },
+    "2035tyl": { "left": "Lewo2035tyl", "right": "Prawo2035tyl", "up": "Prawo2033tyl", "down": "2035" },
+
+    "2037": { "left": "Lewo2037", "right": "Prawo2037", "up": "2038", "down": "2037tyl" },
+    "2037tyl": { "left": "Lewo2037tyl", "right": "Prawo2037tyl", "up": "2035tyl", "down": "2037" },
+
+    "2038": { "left": "Lewo2038", "right": "Prawo2038", "up": null, "down": "2038tyl" },
+    "2038tyl": { "left": "Lewo2038tyl", "right": "Prawo2038tyl", "up": "2037tyl", "down": "2038" },
+
+ "2039": { "left": "Lewo2039", "right": "Prawo2039", "up": "2040", "down": "2039tyl" },
+    "2039tyl": { "left": "Lewo2039tyl", "right": "Prawo2039tyl", "up": "Lewop1korytarz", "down": "2039" },
+
+    "2040": { "left": "Lewo2040", "right": "Prawo2040", "up": "2041", "down": "2040tyl" },
+    "2040tyl": { "left": "Lewo2040tyl", "right": "Prawo2040tyl", "up": "2039tyl", "down": "2040" },
+
+    "2041": { "left": "Lewo2041", "right": "Prawo2041", "up": "2042", "down": "2041tyl" },
+    "2041tyl": { "left": "Lewo2041tyl", "right": "Prawo2041tyl", "up": "2040tyl", "down": "2041" },
+
+    "2042": { "left": "Lewo2042", "right": "Prawo2042", "up": "2043", "down": "2042tyl" },
+    "2042tyl": { "left": "Lewo2042tyl", "right": "Prawo2042tyl", "up": "2041tyl", "down": "2042" },
+
+    "2043": { "left": "Lewo2043", "right": "Prawo2043", "up": "Aulamala", "down": "2043tyl" },
+    "2043tyl": { "left": "Lewo2043tyl", "right": "Prawo2043tyl", "up": "2042tyl", "down": "2043" },
+
+    "Aulamala": { "left": "Lewoaulamala", "right": "Prawoaulamala", "up": null, "down": "Aulamalatyl" },
+    "Aulamalatyl": { "left": "Lewoaulamalatyl", "right": "Prawoaulamalatyl", "up": "2043tyl", "down": "Aulamala" },
+
+    "3002": { "left": "Lewo3002", "right": "Prawo3002", "up": "3001", "down": "3002tyl" },
+    "3002tyl": { "left": "Lewo3002tyl", "right": "Prawo3002tyl", "up": "Prawo3pietrotylsrodektyl", "down": "3002" },
+
+    "3001": { "left": "Lewo3001", "right": "Prawo3001", "up": "3004", "down": "3001tyl" },
+    "3001tyl": { "left": "Lewo3001tyl", "right": "Prawo3001tyl", "up": "3002tyl", "down": "3001" },
+
+    "3004": { "left": "Lewo3004", "right": "Prawo3004", "up": "3006", "down": "3004tyl" },
+    "3004tyl": { "left": "Lewo3004tyl", "right": "Prawo3004tyl", "up": "3001tyl", "down": "3004" },
+
+    "3006": { "left": "Lewo3006", "right": "Prawo3006", "up": "3003", "down": "3006tyl" },
+    "3006tyl": { "left": "Lewo3006tyl", "right": "Prawo3006tyl", "up": "3004tyl", "down": "3006" },
+
+    "3003": { "left": "Lewo3003", "right": "Prawo3003", "up": "3007", "down": "3003tyl" },
+    "3003tyl": { "left": "Lewo3003tyl", "right": "Prawo3003tyl", "up": "3006tyl", "down": "3003" },
+
+    "3007": { "left": "Lewo3007", "right": "Prawo3007", "up": "3010", "down": "3007tyl" },
+    "3007tyl": { "left": "Lewo3007tyl", "right": "Prawo3007tyl", "up": "3003tyl", "down": "3007" },
+
+    "3010": { "left": "Lewo3010", "right": "Prawo3010", "up": "3011", "down": "3010tyl" },
+    "3010tyl": { "left": "Lewo3010tyl", "right": "Prawo3010tyl", "up": "3007tyl", "down": "3010" },
+
+    "3011": { "left": "Lewo3011", "right": "Lewo3011tyl", "up": null, "down": "3011tyl" },
+    "3011tyl": { "left": "Lewo3011tyl", "right": "Lewo3011", "up": "3010tyl", "down": "3011" },
+
+    "3017": { "left": "Lewo3017", "right": "Prawo3017", "up": "3019", "down": "3017tyl" },
+    "3017tyl": { "left": "Lewo3017tyl", "right": "Prawo3017tyl", "up": "Lewo3011tyl", "down": "3017" },
+
+    "3019": { "left": "Lewo3019", "right": "Prawo3019", "up": "3021", "down": "3019tyl" },
+    "3019tyl": { "left": "Lewo3019tyl", "right": "Prawo3019tyl", "up": "3017tyl", "down": "3019" },
+
+    "3021": { "left": "Lewo3021", "right": "Prawo3021", "up": "3023", "down": "3021tyl" },
+    "3021tyl": { "left": "Lewo3021tyl", "right": "Prawo3021tyl", "up": "3019tyl", "down": "3021" },
+
+    "3023": { "left": "Lewo3023", "right": "Prawo3023", "up": "3022", "down": "3023tyl" },
+    "3023tyl": { "left": "Lewo3023tyl", "right": "Prawo3023tyl", "up": "3021tyl", "down": "3023" },
+
+    "3022": { "left": "Lewo3022", "right": "Prawo3022", "up": "3024", "down": "3022tyl" },
+    "3022tyl": { "left": "Lewo3022tyl", "right": "Prawo3022tyl", "up": "3023tyl", "down": "3022" },
+
+    "3024": { "left": "Lewo3024", "right": "Prawo3024", "up": "3027", "down": "3024tyl" },
+    "3024tyl": { "left": "Lewo3024tyl", "right": "Prawo3024tyl", "up": "3022tyl", "down": "3024" },
+
+    "3027": { "left": "Lewo3027", "right": "Prawo3027", "up": "3026", "down": "3027tyl" },
+    "3027tyl": { "left": "Lewo3027tyl", "right": "Prawo3027tyl", "up": "3024tyl", "down": "3027" },
+
+    "3026": { "left": "Lewo3026", "right": "Prawo3026", "up": "3029", "down": "3026tyl" },
+    "3026tyl": { "left": "Lewo3026tyl", "right": "Prawo3026tyl", "up": "3027tyl", "down": "3026" },
+
+    "3029": { "left": "Lewo3029", "right": "Prawo3029", "up": "3031", "down": "3029tyl" },
+    "3029tyl": { "left": "Lewo3029tyl", "right": "Prawo3029tyl", "up": "3026tyl", "down": "3029" },
+
+    "3031": { "left": "Lewo3031", "right": "Prawo3031", "up": null, "down": "3031tyl" },
+    "3031tyl": { "left": "Lewo3031tyl", "right": "Prawo3031tyl", "up": "3029tyl", "down": "3031" },
+
+    "3033": { "left": "Lewo3033", "right": "Prawo3033", "up": "3035", "down": "3033tyl" },
+    "3033tyl": { "left": "Lewo3033tyl", "right": "Prawo3033tyl", "up": "3031tyl", "down": "3033" },
+
+    "3035": { "left": "Lewo3035", "right": "Prawo3035", "up": "3036", "down": "3035tyl" },
+    "3035tyl": { "left": "Lewo3035tyl", "right": "Prawo3035tyl", "up": "3033tyl", "down": "3035" },
+
+    "3036": { "left": "Lewo3036", "right": "Prawo3036", "up": null, "down": "3036tyl" },
+    "3036tyl": { "left": "Lewo3036tyl", "right": "Prawo3036tyl", "up": "3035tyl", "down": "3036" },
+
+    "3038": { "left": "Lewo3038", "right": "Prawo3038", "up": "3039", "down": "3038tyl" },
+    "3038tyl": { "left": "Lewo3038tyl", "right": "Prawo3038tyl", "up": "Lewo3pietrotylsrodektyl", "down": "3038" },
+
+    "3039": { "left": "Lewo3039", "right": "Prawo3039", "up": "3040", "down": "3039tyl" },
+    "3039tyl": { "left": "Lewo3039tyl", "right": "Prawo3039tyl", "up": "3038tyl", "down": "3039" },
+
+    "3040": { "left": "Lewo3040", "right": "Prawo3040", "up": "3042", "down": "3040tyl" },
+    "3040tyl": { "left": "Lewo3040tyl", "right": "Prawo3040tyl", "up": "3039tyl", "down": "3040" },
+
+    "3042": { "left": "Lewo3042", "right": "Prawo3042", "up": "3044", "down": "3042tyl" },
+    "3042tyl": { "left": "Lewo3042tyl", "right": "Prawo3042tyl", "up": "3040tyl", "down": "3042" },
+
+    "3044": { "left": "Lewo3044", "right": "Prawo3044", "up": "3050", "down": "3044tyl" },
+    "3044tyl": { "left": "Lewo3044tyl", "right": "Prawo3044tyl", "up": "3042tyl", "down": "3044" },
+
+    "3050": { "left": "Lewo3050", "right": "Prawo3050", "up": null, "down": "3044tyl" },
+    "3050tyl": { "left": "Lewo3050tyl", "right": "Prawo3050tyl", "up": "3044tyl", "down": "3050" },
+    "Schody2": { "left": null, "right": "Prawoschody2", "up": "Schody3pietro", "down": "Schody2tyl" },
+    "Schody2tyl": { "left": null, "right": null, "up": null, "down": "Schody2" },
+    "Schody3pietro": { "left": null, "right": null, "up": "3pietro", "down": "Schody3pietrotyl" },
+    "Schody3pietrotyl": { "left": null, "right": null, "up":"P1korytarz", "down": "Schody3pietro" },
+     "3pietro": { "left": "Lewo3pietro", "right": "Prawo3pietro", "up": "3pietrotylsrodektyl", "down": "3pietrotyl" },
+    "3pietrotyl": { "left": "Lewo3pietrotyl", "right": "Prawo3pietrotyl", "up": "Schody3pietrotyl", "down": "3pietro" },
+    "3pietrotylsrodek": { "left":"Prawo3pietrotylsrodektyl", "right":"Lewo3pietrotylsrodektyl", "up": "Schody3pietrotyl", "down": "3pietrosrodektyl" },
+    "3pietrotylsrodektyl": { "left": "Lewo3pietrotylsrodektyl", "right": "Prawo3pietrotylsrodektyl", "up": null, "down": "3pietrotylsrodektyl" },
+
+    "Lewoaulamala": { "left": null, "right": "Aulamala", "up": null, "down": "Prawoaulamala" },
+    "Lewoaulamalatyl": { "left": null, "right": "Aulamalatyl", "up": null, "down": "Prawoaulamalatyl" },
+    "Lewo3pietrotylsrodek": { "left": null, "right": "3pietrotylsrodek", "up": null, "down": "3pietrotyl" },
+    "Lewo3pietrotylsrodektyl": { "left": "3pietrotylsrodek", "right": "3pietrotylsrodektyl", "up": "3002", "down": "Prawo3pietrotylsrodektyl" },
+     "Lewo3pietro": { "left": null, "right": "3pietro", "up": null, "down": "3pietrotyl" },
+    "Lewo3pietrotyl": { "left": null, "right": "Lewo3pietrotyl", "up": null, "down": "3pietro" },
+    "Lewo1004": { "left": null, "right": "1004", "up": null, "down": "Prawo1004" },
+    "Lewo1004tyl": { "left": null, "right": "1004tyl", "up": null, "down": "Prawo1004tyl" },
+    "Lewo1006": { "left": null, "right": "1006", "up": null, "down": "Prawo1006" },
+    "Lewo1006tyl": { "left": null, "right": "1006tyl", "up": null, "down": "Prawo1006tyl" },
+    "Lewo1008": { "left": null, "right": "1008", "up": null, "down": "Prawo1008" },
+    "Lewo1008tyl": { "left": null, "right": "1008tyl", "up": null, "down": "Prawo1008tyl" },
+    "Lewo1009": { "left": null, "right": "1009", "up": null, "down": "Prawo1009" },
+    "Lewo1009tyl": { "left": null, "right": "1009tyl", "up": null, "down": "Prawo1009tyl" },
+    "Lewo1010": { "left": null, "right": "1010", "up": null, "down": "Prawo1010" },
+    "Lewo1010tyl": { "left": null, "right": "1010tyl", "up": null, "down": "Prawo1010tyl" },
+    "Lewo1012": { "left": null, "right": "1012", "up": null, "down": "Prawo1012" },
+    "Lewo1012tyl": { "left": null, "right": "1012tyl", "up": null, "down": "Prawo1012tyl" },
+    "Lewo1013": { "left": null, "right": "1013", "up": null, "down": "Prawo1013" },
+    "Lewo1013tyl": { "left": null, "right": "1013tyl", "up": null, "down": "Prawo1013tyl" },
+    "Lewo1014": { "left": null, "right": "1014", "up": null, "down": "Prawo1014" },
+    "Lewo1014tyl": { "left": null, "right": "1014tyl", "up": null, "down": "Prawo1014tyl" },
+    "Lewo1015": { "left": null, "right": "1015", "up": null, "down": "Prawo1015" },
+    "Lewo1015tyl": { "left": null, "right": "1015tyl", "up": null, "down": "Prawo1015tyl" },
+    "Lewo1016": { "left": null, "right": "1016", "up": null, "down": "Prawo1016" },
+    "Lewo1016tyl": { "left": null, "right": "1016tyl", "up": null, "down": "Prawo1016tyl" },
+    "Lewo1017": { "left": null, "right": "1017", "up": null, "down": "Prawo1017" },
+    "Lewo1017tyl": { "left": null, "right": "1017tyl", "up": null, "down": "Prawo1017tyl" },
+    "Lewo1019": { "left": null, "right": "1019", "up": null, "down": "Prawo1019" },
+    "Lewo1019tyl": { "left": null, "right": "1019tyl", "up": null, "down": "Prawo1019tyl" },
+    "Lewo1021": { "left": null, "right": "1021", "up": null, "down": "Prawo1021" },
+    "Lewo1021tyl": { "left": null, "right": "1021tyl", "up": null, "down": "Prawo1021tyl" },
+    "Lewo1023": { "left": null, "right": "1023", "up": null, "down": "Prawo1023" },
+    "Lewo1023tyl": { "left": null, "right": "1023tyl", "up": null, "down": "Prawo1023tyl" },
+    "Lewo1025": { "left": null, "right": "1025", "up": null, "down": "Prawo1025" },
+    "Lewo1025tyl": { "left": null, "right": "1025tyl", "up": null, "down": "Prawo1025tyl" },
+    "Lewo1027": { "left": null, "right": "1027", "up": null, "down": "Prawo1027" },
+    "Lewo1027tyl": { "left": null, "right": "1027tyl", "up": null, "down": "Prawo1027tyl" },
+    "Lewo1029": { "left": null, "right": "1029", "up": null, "down": "Prawo1029" },
+    "Lewo1029tyl": { "left": null, "right": "1029tyl", "up": null, "down": "Prawo1029tyl" },
+    "Lewo1031": { "left": null, "right": "1031", "up": null, "down": "Prawo1031" },
+    "Lewo1031tyl": { "left": null, "right": "1031tyl", "up": null, "down": "Prawo1031tyl" },
+    "Lewo1032": { "left": null, "right": "1032", "up": null, "down": "Prawo1032" },
+    "Lewo1032tyl": { "left": null, "right": "1032tyl", "up": null, "down": "Prawo1032tyl" },
+    "Lewo1033": { "left": null, "right": "1033", "up": null, "down": "Prawo1033" },
+    "Lewo1033tyl": { "left": null, "right": "1033tyl", "up": null, "down": "Prawo1033tyl" },
+    "Lewo1034": { "left": null, "right": "1034", "up": null, "down": "Prawo1034" },
+    "Lewo1034tyl": { "left": null, "right": "1034tyl", "up": null, "down": "Prawo1034tyl" },
+    "Lewo1035": { "left": null, "right": "1035", "up": null, "down": "Prawo1035" },
+    "Lewo1035tyl": { "left": null, "right": "1035tyl", "up": null, "down": "Prawo1035tyl" },
+    "Lewo1036": { "left": null, "right": "1036", "up": null, "down": "Prawo1036" },
+    "Lewo1036tyl": { "left": null, "right": "1036tyl", "up": null, "down": "Prawo1036tyl" },
+    "Lewo1037": { "left": "1037tyl", "right": "1037", "up": null, "down": "Prawo1037" },
+    "Lewo1037tyl": { "left": "1037", "right": "1037tyl", "up": null, "down": "Prawo1037tyl" },
+    "Lewo1038": { "left": null, "right": "1038", "up": null, "down": "Prawo1038" },
+    "Lewo1038tyl": { "left": null, "right": "1038tyl", "up": null, "down": "Prawo1038tyl" },
+    "Lewo1039": { "left": null, "right": "1039", "up": null, "down": "Prawo1039" },
+    "Lewo1039tyl": { "left": null, "right": "1039tyl", "up": null, "down": "Prawo1039tyl" },
+    "Lewo1041": { "left": null, "right": "1041", "up": null, "down": "Prawo1041" },
+    "Lewo1041tyl": { "left": null, "right": "1041tyl", "up": null, "down": "Prawo1041tyl" },
+    "Lewo1043": { "left": null, "right": "1043", "up": null, "down": "Prawo1043" },
+    "Lewo1043tyl": { "left": null, "right": "1043tyl", "up": null, "down": "Prawo1043tyl" },
+    "Lewo1049": { "left": null, "right": "1049", "up": null, "down": "Prawo1049" },
+    "Lewo1049tyl": { "left": null, "right": "1049tyl", "up": null, "down": "Prawo1049tyl" },
+    "Lewo1051": { "left": null, "right": "1051", "up": null, "down": "Prawo1051" },
+    "Lewo1051tyl": { "left": null, "right": "1051tyl", "up": null, "down": "Prawo1051tyl" },
+    "Lewo1053": { "left": null, "right": "1053", "up": null, "down": "Prawo1053" },
+    "Lewo1053tyl": { "left": null, "right": "1053tyl", "up": null, "down": "Prawo1053tyl" },
+    "Lewo1055": { "left": null, "right": "1055", "up": null, "down": "Prawo1055" },
+    "Lewo1055tyl": { "left": null, "right": "1055tyl", "up": null, "down": "Prawo1055tyl" },
+    "Lewo2002": { "left": null, "right": "2002", "up": null, "down": "Prawo2002" },
+    "Lewo2002tyl": { "left": null, "right": "2002tyl", "up": null, "down": "Prawo2002tyl" },
+    "Lewo2039": { "left": null, "right": "2039", "up": null, "down": "Prawo2039" },
+    "Lewo2039tyl": { "left": null, "right": "2039tyl", "up": null, "down": "Prawo2039tyl" },
+    "LewoAula1056": { "left": "Aula1056tyl", "right": "Aula1056", "up": null, "down": "PrawoAula1056" },
+    "LewoAula1056tyl": { "left": "Aula1056tyl", "right": "Aula1056tyl", "up": null, "down": "PrawoAula1056tyl" },
+    "LewoKorytarz1": { "left": null, "right": "Korytarz1", "up": null, "down": "PrawoKorytarz1" },
+    "LewoKorytarz1tyl": { "left": null, "right": "Korytarz1tyl", "up": null, "down": "PrawoKorytarz1tyl" },
+    "LewoKorytarz1018": { "left": "Korytarz1018tyl", "right": "Korytarz1018", "up": "Korytarz1021", "down": "PrawoKorytarz1018" },
+    "LewoKorytarz1018tyl": { "left": null, "right": "Korytarz1018tyl", "up": null, "down": "LewoKorytarz1018" },
+    "LewoKorytarz1021": { "left": null, "right": "Korytarz1021", "up": null, "down": "PrawoKorytarz1021" },
+    "LewoKorytarz1021tyl": { "left": null, "right": "Korytarz1021tyl", "up": null, "down": "PrawoKorytarz1021tyl" },
+    "LewoKorytarz2": { "left": "Korytarz2tyl", "right": "Korytarz2", "up": "1049", "down": "PrawoKorytarz2" },
+    "LewoKorytarz2tyl": { "left": "Korytarz2", "right": "Korytarz2tyl", "up": null, "down": "PrawoKorytarz2tyl" },
+    "LewoKorytarz5": { "left": null, "right": "Korytarz5", "up": null, "down": "PrawoKorytarz5" },
+    "LewoKorytarz5tyl": { "left": null, "right": "Korytarz5tyl", "up": null, "down": "PrawoKorytarz5tyl" },
+    "Lewop1korytarz": { "left": "P1korytarztyl", "right": "P1korytarz", "up": "2002", "down": "Prawop1korytarz" },
+    "Lewo2002": { "left": null, "right": "2002", "up": null, "down": "Prawo2002" },
+    "Lewo2002tyl": { "left": null, "right": "2002tyl", "up": null, "down": "Prawo2002tyl" },
+    "Lewo2001": { "left": null, "right": "2001", "up": null, "down": "Prawo2001" },
+    "Lewo2001tyl": { "left": null, "right": "2001tyl", "up": null, "down": "Prawo2001tyl" },
+    "Lewo2006": { "left": null, "right": "2006", "up": null, "down": "Prawo2006" },
+    "Lewo2006tyl": { "left": null, "right": "2006tyl", "up": null, "down": "Prawo2006tyl" },
+    "Lewo2003": { "left": null, "right": "2003", "up": null, "down": "Prawo2003" },
+    "Lewo2003tyl": { "left": null, "right": "2003tyl", "up": null, "down": "Prawo2003tyl" },
+    "Lewo2005": { "left": null, "right": "2005", "up": null, "down": "Prawo2005" },
+    "Lewo2005tyl": { "left": null, "right": "2005tyl", "up": null, "down": "Prawo2005tyl" },
+    "Lewo2007": { "left": null, "right": "2007", "up": null, "down": "Prawo2007" },
+    "Lewo2007tyl": { "left": null, "right": "2007tyl", "up": null, "down": "Prawo2007tyl" },
+    "Lewo2009": { "left": null, "right": "2009", "up": null, "down": "Prawo2009" },
+    "Lewo2009tyl": { "left": null, "right": "2009tyl", "up": null, "down": "Prawo2009tyl" },
+    "Lewo2010": { "left": null, "right": "2010", "up": null, "down": "Prawo2010" },
+    "Lewo2010tyl": { "left": null, "right": "2010tyl", "up": null, "down": "Prawo2010tyl" },
+    "Lewo2012": { "left": "2012tyl", "right": "2012", "up": "2017", "down": "Prawo2012" },
+    "Lewo2012tyl": { "left": "2012", "right": "2012tyl", "up": null, "down": "Prawo2012tyl" },
+    "Lewo2017": { "left": null, "right": "2017", "up": null, "down": "Prawo2017" },
+    "Lewo2017tyl": { "left": null, "right": "2017tyl", "up": null, "down": "Prawo2017tyl" },
+    "Lewo2019": { "left": null, "right": "2019", "up": null, "down": "Prawo2019" },
+    "Lewo2019tyl": { "left": null, "right": "2019tyl", "up": null, "down": "Prawo2019tyl" },
+    "Lewo2021": { "left": null, "right": "2021", "up": null, "down": "Prawo2021" },
+    "Lewo2021tyl": { "left": null, "right": "2021tyl", "up": null, "down": "Prawo2021tyl" },
+    "Lewo2020": { "left": null, "right": "2020", "up": null, "down": "Prawo2020" },
+    "Lewo2020tyl": { "left": null, "right": "2020tyl", "up": null, "down": "Prawo2020tyl" },
+    "Lewo2023": { "left": null, "right": "2023", "up": null, "down": "Prawo2023" },
+    "Lewo2023tyl": { "left": null, "right": "2023tyl", "up": null, "down": "Prawo2023tyl" },
+    "Lewo2025": { "left": null, "right": "2025", "up": null, "down": "Prawo2025" },
+    "Lewo2025tyl": { "left": null, "right": "2025tyl", "up": null, "down": "Prawo2025tyl" },
+    "Lewo2024": { "left": null, "right": "2024", "up": null, "down": "Prawo2024" },
+    "Lewo2024tyl": { "left": null, "right": "2024tyl", "up": null, "down": "Prawo2024tyl" },
+    "Lewo2026": { "left": null, "right": "2026", "up": null, "down": "Prawo2026" },
+    "Lewo2026tyl": { "left": null, "right": "2026tyl", "up": null, "down": "Prawo2026tyl" },
+    "Lewo2029": { "left": null, "right": "2029", "up": null, "down": "Prawo2029" },
+    "Lewo2029tyl": { "left": null, "right": "2029tyl", "up": null, "down": "Prawo2029tyl" },
+    "Lewo2028": { "left": null, "right": "2028", "up": null, "down": "Prawo2028" },
+    "Lewo2028tyl": { "left": null, "right": "2028tyl", "up": null, "down": "Prawo2028tyl" },
+    "Lewo2031": { "left": null, "right": "2031", "up": null, "down": "Prawo2031" },
+    "Lewo2031tyl": { "left": null, "right": "2031tyl", "up": null, "down": "Prawo2031tyl" },
+    "Lewo2033": { "left": "2033tyl", "right": "2033", "up": null, "down": "Prawo2033" },
+    "Lewo2033tyl": { "left": "2033", "right": "2033tyl", "up": "2035", "down": "Prawo2033tyl" },
+    "Lewo2035": { "left": null, "right": "2035", "up": null, "down": "Prawo2035" },
+    "Lewo2035tyl": { "left": null, "right": "2035tyl", "up": null, "down": "Prawo2035tyl" },
+    "Lewo2037": { "left": null, "right": "2037", "up": null, "down": "Prawo2037" },
+    "Lewo2037tyl": { "left": null, "right": "2037tyl", "up": null, "down": "Prawo2037tyl" },
+    "Lewo2038": { "left": null, "right": "2038", "up": null, "down": "Prawo2038" },
+    "Lewo2038tyl": { "left": null, "right": "2038tyl", "up": null, "down": "Prawo2038tyl" },
+    "Lewo2039": { "left": null, "right": "2039", "up": null, "down": "Prawo2039" },
+    "Lewo2039tyl": { "left": null, "right": "2039tyl", "up": null, "down": "Prawo2039tyl" },
+    "Lewo2040": { "left": null, "right": "2040", "up": null, "down": "Prawo2040" },
+    "Lewo2040tyl": { "left": null, "right": "2040tyl", "up": null, "down": "Prawo2040tyl" },
+    "Lewo2041": { "left": null, "right": "2041", "up": null, "down": "Prawo2041" },
+    "Lewo2041tyl": { "left": null, "right": "2041tyl", "up": null, "down": "Prawo2041tyl" },
+    "Lewo2042": { "left": null, "right": "2042", "up": null, "down": "Prawo2042" },
+    "Lewo2042tyl": { "left": null, "right": "2042tyl", "up": null, "down": "Prawo2042tyl" },
+    "Lewo2043": { "left": null, "right": "2043", "up": null, "down": "Prawo2043" },
+    "Lewo2043tyl": { "left": null, "right": "2043tyl", "up": null, "down": "Prawo2043tyl" },
+    "Lewoschody2": { "left": null, "right": "Schody2", "up": null, "down": "Prawoschody2" },
+     "Lewo3002": { "left": null, "right": "3002", "up": null, "down": "Prawo3002" },
+    "Lewo3002tyl": { "left": null, "right": "3002tyl", "up": null, "down": "Prawo3002tyl" },
+    "Lewo3001": { "left": null, "right": "3001", "up": null, "down": "Prawo3001" },
+    "Lewo3001tyl": { "left": null, "right": "3001tyl", "up": null, "down": "Prawo3001tyl" },
+    "Lewo3004": { "left": null, "right": "3004", "up": null, "down": "Prawo3004" },
+    "Lewo3004tyl": { "left": null, "right": "3004tyl", "up": null, "down": "Prawo3004tyl" },
+    "Lewo3006": { "left": null, "right": "3006", "up": null, "down": "Prawo3006" },
+    "Lewo3006tyl": { "left": null, "right": "3006tyl", "up": null, "down": "Prawo3006tyl" },
+    "Lewo3003": { "left": null, "right": "3003", "up": null, "down": "Prawo3003" },
+    "Lewo3003tyl": { "left": null, "right": "3003tyl", "up": null, "down": "Prawo3003tyl" },
+    "Lewo3007": { "left": null, "right": "3007", "up": null, "down": "Prawo3007" },
+    "Lewo3007tyl": { "left": null, "right": "3007tyl", "up": null, "down": "Prawo3007tyl" },
+    "Lewo3010": { "left": null, "right": "3010", "up": null, "down": "Prawo3010" },
+    "Lewo3010tyl": { "left": null, "right": "3010tyl", "up": null, "down": "Prawo3010tyl" },
+    "Lewo3011": { "left": "3011tyl", "right": "3011", "up":"3017", "down": "Lewo3011tyl" },
+    "Lewo3011tyl": { "left": "3011", "right": "3011tyl", "up": null, "down": "Lewo3011" },
+    "Lewo3017": { "left": null, "right": "3017", "up": null, "down": "Prawo3017" },
+    "Lewo3017tyl": { "left": null, "right": "3017tyl", "up": null, "down": "Prawo3017tyl" },
+    "Lewo3019": { "left": null, "right": "3019", "up": null, "down": "Prawo3019" },
+    "Lewo3019tyl": { "left": null, "right": "3019tyl", "up": null, "down": "Prawo3019tyl" },
+    "Lewo3021": { "left": null, "right": "3021", "up": null, "down": "Prawo3021" },
+    "Lewo3021tyl": { "left": null, "right": "3021tyl", "up": null, "down": "Prawo3021tyl" },
+    "Lewo3023": { "left": null, "right": "3023", "up": null, "down": "Prawo3023" },
+    "Lewo3023tyl": { "left": null, "right": "3023tyl", "up": null, "down": "Prawo3023tyl" },
+    "Lewo3022": { "left": null, "right": "3022", "up": null, "down": "Prawo3022" },
+    "Lewo3022tyl": { "left": null, "right": "3022tyl", "up": null, "down": "Prawo3022tyl" },
+    "Lewo3024": { "left": null, "right": "3024", "up": null, "down": "Prawo3024" },
+    "Lewo3024tyl": { "left": null, "right": "3024tyl", "up": null, "down": "Prawo3024tyl" },
+    "Lewo3027": { "left": null, "right": "3027", "up": null, "down": "Prawo3027" },
+    "Lewo3027tyl": { "left": null, "right": "3027tyl", "up": null, "down": "Prawo3027tyl" },
+    "Lewo3026": { "left": null, "right": "3026", "up": null, "down": "Prawo3026" },
+    "Lewo3026tyl": { "left": null, "right": "3026tyl", "up": null, "down": "Prawo3026tyl" },
+    "Lewo3029": { "left": null, "right": "3029", "up": null, "down": "Prawo3029" },
+    "Lewo3029tyl": { "left": null, "right": "3029tyl", "up": null, "down": "Prawo3029tyl" },
+    "Lewo3031": { "left": "3031tyl", "right": "3031", "up": null, "down": "Prawo3031" },
+    "Lewo3031tyl": { "left": "3031", "right": "3031tyl", "up": "3033", "down": "Prawo3031tyl" },
+    "Lewo3033": { "left": null, "right": "3033", "up": null, "down": "Prawo3033" },
+    "Lewo3033tyl": { "left": null, "right": "3033tyl", "up": null, "down": "Prawo3033tyl" },
+    "Lewo3035": { "left": null, "right": "3035", "up": null, "down": "Prawo3035" },
+    "Lewo3035tyl": { "left": null, "right": "3035tyl", "up": null, "down": "Prawo3035tyl" },
+    "Lewo3036": { "left": null, "right": "3036", "up": null, "down": "Prawo3036" },
+    "Lewo3036tyl": { "left": null, "right": "3036tyl", "up": null, "down": "Prawo3036tyl" },
+    "Lewo3038": { "left": null, "right": "3038", "up": null, "down": "Prawo3038" },
+    "Lewo3038tyl": { "left": null, "right": "3038tyl", "up": null, "down": "Prawo3038tyl" },
+    "Lewo3039": { "left": null, "right": "3039", "up": null, "down": "Prawo3039" },
+    "Lewo3039tyl": { "left": null, "right": "3039tyl", "up": null, "down": "Prawo3039tyl" },
+    "Lewo3040": { "left": null, "right": "3040", "up": null, "down": "Prawo3040" },
+    "Lewo3040tyl": { "left": null, "right": "3040tyl", "up": null, "down": "Prawo3040tyl" },
+    "Lewo3042": { "left": null, "right": "3042", "up": null, "down": "Prawo3042" },
+    "Lewo3042tyl": { "left": null, "right": "3042tyl", "up": null, "down": "Prawo3042tyl" },
+    "Lewo3044": { "left": null, "right": "3044", "up": null, "down": "Prawo3044" },
+    "Lewo3044tyl": { "left": null, "right": "3044tyl", "up": null, "down": "Prawo3044tyl" },
+    "Lewo3050": { "left": null, "right": "3050", "up": null, "down": "Prawo3050" },
+    "Lewo3050tyl": { "left": null, "right": "3050tyl", "up": null, "down": "Prawo3050tyl" },
+
+      "Prawoaulamala": { "left": "Aulamala", "right": null, "up": null, "down": "Lewoaulamala" },
+    "Prawoaulamalatyl": { "left": "Aulamalatyl", "right": null, "up": null, "down": "Lewoaulamalatyl" },
+    "Prawoschody2": { "left": "Schody2", "right": null, "up": "Lewop1korytarz", "down": "Lewoschody2" },
+     "Prawo3002": { "left": "3002", "right": null, "up": null, "down": "Lewo3002" },
+    "Prawo3pietrotylsrodek": { "left": "3pietrotylsrodek", "right": null, "up": null, "down": "3pietrotyl" },
+    "Prawo3pietrotylsrodektyl": { "left": "3pietrotylsrodektyl", "right": "3pietrotylsrodek", "up": "3038", "down": "Lewo3pietrotylsrodektyl" },
+    "Prawo3pietro": { "left": "3pietro", "right": null, "up": null, "down": "3pietrotyl" },
+    "Prawo3pietrotyl": { "left": "3pietrotyl", "right": null, "up": null, "down": "3pietro" },
+    "Prawop1": { "left": "P1", "right": "P1tyl", "up": "Lewoschody2", "down": "Prawop1tyl" },
+    "Prawop1tyl": { "left": null, "right": null, "up": "Lewoschody2tyl", "down": "Prawop1" },
+    "Prawop1korytarz": { "left": "P1korytarz", "right": "P1korytarztyl", "up": "2039", "down": "Lewop1korytarz" },
+    "Prawo1004": { "left": "1004", "right": null, "up": null, "down": "Lewo1004" },
+    "Prawo1004tyl": { "left": "1004tyl", "right": null, "up": null, "down": "Lewo1004tyl" },
+    "Prawo1006": { "left": "1006", "right": null, "up": null, "down": "Lewo1006" },
+    "Prawo1006tyl": { "left": "1006tyl", "right": null, "up": null, "down": "Lewo1006tyl" },
+    "Prawo1008": { "left": "1008", "right": null, "up": null, "down": "Lewo1008" },
+    "Prawo1008tyl": { "left": "1008tyl", "right": null, "up": null, "down": "Lewo1008tyl" },
+    "Prawo1009": { "left": "1009", "right": null, "up": null, "down": "Lewo1009" },
+    "Prawo1009tyl": { "left": "1009tyl", "right": null, "up": null, "down": "Lewo1009tyl" },
+    "Prawo1010": { "left": "1010", "right": null, "up": null, "down": "Lewo1010" },
+    "Prawo1010tyl": { "left": "1010tyl", "right": null, "up": null, "down": "Lewo1010tyl" },
+    "Prawo1012": { "left": "1012", "right": null, "up": null, "down": "Lewo1012" },
+    "Prawo1012tyl": { "left": "1012tyl", "right": null, "up": null, "down": "Lewo1012tyl" },
+    "Prawo1013": { "left": "1013", "right": null, "up": null, "down": "Lewo1013" },
+    "Prawo1013tyl": { "left": "1013tyl", "right": null, "up": null, "down": "Lewo1013tyl" },
+    "Prawo1014": { "left": "1014", "right": null, "up": null, "down": "Lewo1014" },
+    "Prawo1014tyl": { "left": "1014tyl", "right": null, "up": null, "down": "Lewo1014tyl" },
+    "Prawo1015": { "left": "1015", "right": null, "up": null, "down": "Lewo1015" },
+    "Prawo1015tyl": { "left": "1015tyl", "right": null, "up": null, "down": "Lewo1015tyl" },
+    "Prawo1016": { "left": "1016", "right": null, "up": null, "down": "Lewo1016" },
+    "Prawo1016tyl": { "left": "1016tyl", "right": null, "up": null, "down": "Lewo1016tyl" },
+    "Prawo1017": { "left": "1017", "right": null, "up": null, "down": "Lewo1017" },
+    "Prawo1017tyl": { "left": "1017tyl", "right": null, "up": null, "down": "Lewo1017tyl" },
+    "Prawo1019": { "left": "1019", "right": null, "up": null, "down": "Lewo1019" },
+    "Prawo1019tyl": { "left": "1019tyl", "right": null, "up": null, "down": "Lewo1019tyl" },
+    "Prawo1021": { "left": "1021", "right": null, "up": null, "down": "Lewo1021" },
+    "Prawo1021tyl": { "left": "1021tyl", "right": null, "up": null, "down": "Lewo1021tyl" },
+    "Prawo1023": { "left": "1023", "right": null, "up": null, "down": "Lewo1023" },
+    "Prawo1023tyl": { "left": "1023tyl", "right": null, "up": null, "down": "Lewo1023tyl" },
+    "Prawo1025": { "left": "1025", "right": null, "up": null, "down": "Lewo1025" },
+    "Prawo1025tyl": { "left": "1025tyl", "right": null, "up": null, "down": "Lewo1025tyl" },
+    "Prawo1027": { "left": "1027", "right": null, "up": null, "down": "Lewo1027" },
+    "Prawo1027tyl": { "left": "1027tyl", "right": null, "up": null, "down": "Lewo1027tyl" },
+    "Prawo1029": { "left": "1029", "right": null, "up": null, "down": "Lewo1029" },
+    "Prawo1029tyl": { "left": "1029tyl", "right": null, "up": null, "down": "Lewo1029tyl" },
+    "Prawo1031": { "left": "1031", "right": null, "up": null, "down": "Lewo1031" },
+    "Prawo1031tyl": { "left": "1031tyl", "right": null, "up": null, "down": "Lewo1031tyl" },
+    "Prawo1032": { "left": "1032", "right": null, "up": null, "down": "Lewo1032" },
+    "Prawo1032tyl": { "left": "1032tyl", "right": null, "up": null, "down": "Lewo1032tyl" },
+    "Prawo1033": { "left": "1033", "right": null, "up": null, "down": "Lewo1033" },
+    "Prawo1033tyl": { "left": "1033tyl", "right": null, "up": null, "down": "Lewo1033tyl" },
+    "Prawo1034": { "left": "1034", "right": null, "up": null, "down": "Lewo1034" },
+    "Prawo1034tyl": { "left": "1034tyl", "right": null, "up": null, "down": "Lewo1034tyl" },
+    "Prawo1035": { "left": "1035", "right": null, "up": null, "down": "Lewo1035" },
+    "Prawo1035tyl": { "left": "1035tyl", "right": null, "up": null, "down": "Lewo1035tyl" },
+    "Prawo1036": { "left": "1036", "right": null, "up": null, "down": "Lewo1036" },
+    "Prawo1036tyl": { "left": "1036tyl", "right": null, "up": null, "down": "Lewo1036tyl" },
+    "Prawo1037": { "left": "1037", "right": "1037tyl", "up": "1039", "down": "Lewo1037" },
+    "Prawo1037tyl": { "left": "1037tyl", "right": "1037", "up": null, "down": "Lewo1037tyl" },
+    "Prawo1038": { "left": "1038", "right": null, "up": null, "down": "Lewo1038" },
+    "Prawo1038tyl": { "left": "1038tyl", "right": null, "up": null, "down": "Lewo1038tyl" },
+    "Prawo1039": { "left": "1039", "right": null, "up": null, "down": "Lewo1039" },
+    "Prawo1039tyl": { "left": "1039tyl", "right": null, "up": null, "down": "Lewo1039tyl" },
+    "Prawo1041": { "left": "1041", "right": null, "up": null, "down": "Lewo1041" },
+    "Prawo1041tyl": { "left": "1041tyl", "right": null, "up": null, "down": "Lewo1041tyl" },
+    "Prawo1043": { "left": "1043", "right": null, "up": null, "down": "Lewo1043" },
+    "Prawo1043tyl": { "left": "1043tyl", "right": null, "up": null, "down": "Lewo1043tyl" },
+    "Prawo1049": { "left": "1049", "right": null, "up": null, "down": "Lewo1049" },
+    "Prawo1049tyl": { "left": "1049tyl", "right": null, "up": null, "down": "Lewo1049tyl" },
+    "Prawo1051": { "left": "1051", "right": null, "up": null, "down": "Lewo1051" },
+    "Prawo1051tyl": { "left": "1051tyl", "right": null, "up": null, "down": "Lewo1051tyl" },
+    "Prawo1053": { "left": "1053", "right": null, "up": null, "down": "Lewo1053" },
+    "Prawo1053tyl": { "left": "1053tyl", "right": null, "up": null, "down": "Lewo1053tyl" },
+    "Prawo1055": { "left": "1055", "right": null, "up": null, "down": "Lewo1055" },
+    "Prawo1055tyl": { "left": "1055tyl", "right": null, "up": null, "down": "Lewo1055tyl" },
+    "Prawo2002": { "left": "2002", "right": null, "up": null, "down": "Lewo2002" },
+    "Prawo2002tyl": { "left": "2002tyl", "right": null, "up": null, "down": "Lewo2002tyl" },
+    "Prawo2039": { "left": "2039", "right": null, "up": null, "down": "Lewo2039" },
+    "Prawo2039tyl": { "left": "2039tyl", "right": null, "up": null, "down": "Lewo2039tyl" },
+    "PrawoAula1056": { "left": "Aula1056", "right": "Aula1056tyl", "up": null, "down": "LewoAula1056" },
+    "PrawoAula1056tyl": { "left": "Aula1056tyl", "right": "Aula1056tyl", "up": null, "down": "LewoAula1056tyl" },
+    "PrawoKorytarz1": { "left": "Korytarz1", "right": null, "up": null, "down": "LewoKorytarz1" },
+    "PrawoKorytarz1tyl": { "left": "Korytarz1tyl", "right": null, "up": null, "down": "LewoKorytarz1tyl" },
+    "PrawoKorytarz1018": { "left": "Korytarz1018", "right": "Korytarz1018tyl", "up": null, "down": "LewoKorytarz1018" },
+    "PrawoKorytarz1018tyl": { "left": "Korytarz1018tyl", "right": null, "up": null, "down": "LewoKorytarz1018tyl" },
+    "PrawoKorytarz1021": { "left": "Korytarz1021", "right": null, "up": null, "down": "LewoKorytarz1021" },
+    "PrawoKorytarz1021tyl": { "left": "Korytarz1021tyl", "right": null, "up": null, "down": "LewoKorytarz1021tyl" },
+    "PrawoKorytarz2": { "left": "Korytarz2", "right": "Korytarz2tyl", "up": "1004", "down": "LewoKorytarz2" },
+    "PrawoKorytarz2tyl": { "left": "Korytarz2tyl", "right": null, "up": null, "down": "LewoKorytarz2tyl" },
+    "PrawoKorytarz5": { "left": "Korytarz5", "right": null, "up": null, "down": "LewoKorytarz5" },
+    "PrawoKorytarz5tyl": { "left": "Korytarz5tyl", "right": null, "up": null, "down": "LewoKorytarz5tyl" },
+
+    "Prawo2002": { "left": "2002", "right": null, "up": null, "down": "Lewo2002" },
+    "Prawo2002tyl": { "left": "2002tyl", "right": null, "up": null, "down": "Lewo2002tyl" },
+    "Prawo2001": { "left": "2001", "right": null, "up": null, "down": "Lewo2001" },
+    "Prawo2001tyl": { "left": "2001tyl", "right": null, "up": null, "down": "Lewo2001tyl" },
+    "Prawo2006": { "left": "2006", "right": null, "up": null, "down": "Lewo2006" },
+    "Prawo2006tyl": { "left": "2006tyl", "right": null, "up": null, "down": "Lewo2006tyl" },
+    "Prawo2003": { "left": "2003", "right": null, "up": null, "down": "Lewo2003" },
+    "Prawo2003tyl": { "left": "2003tyl", "right": null, "up": null, "down": "Lewo2003tyl" },
+    "Prawo2005": { "left": "2005", "right": null, "up": null, "down": "Lewo2005" },
+    "Prawo2005tyl": { "left": "2005tyl", "right": null, "up": null, "down": "Lewo2005tyl" },
+    "Prawo2007": { "left": "2007", "right": null, "up": null, "down": "Lewo2007" },
+    "Prawo2007tyl": { "left": "2007tyl", "right": null, "up": null, "down": "Lewo2007tyl" },
+    "Prawo2009": { "left": "2009", "right": null, "up": null, "down": "Lewo2009" },
+    "Prawo2009tyl": { "left": "2009tyl", "right": null, "up": null, "down": "Lewo2009tyl" },
+    "Prawo2010": { "left": "2010", "right": null, "up": null, "down": "Lewo2010" },
+    "Prawo2010tyl": { "left": "2010tyl", "right": null, "up": null, "down": "Lewo2010tyl" },
+    "Prawo2012": { "left": "2012", "right": "2012tyl", "up": null, "down": "Lewo2012" },
+    "Prawo2012tyl": { "left": "2012tyl", "right": null, "up": null, "down": "Lewo2012tyl" },
+    "Prawo2017": { "left": "2017", "right": null, "up": null, "down": "Lewo2017" },
+    "Prawo2017tyl": { "left": "2017tyl", "right": null, "up": null, "down": "Lewo2017tyl" },
+    "Prawo2019": { "left": "2019", "right": null, "up": null, "down": "Lewo2019" },
+    "Prawo2019tyl": { "left": "2019tyl", "right": null, "up": null, "down": "Lewo2019tyl" },
+    "Prawo2021": { "left": "2021", "right": null, "up": null, "down": "Lewo2021" },
+    "Prawo2021tyl": { "left": "2021tyl", "right": null, "up": null, "down": "Lewo2021tyl" },
+    "Prawo2020": { "left": "2020", "right": null, "up": null, "down": "Lewo2020" },
+    "Prawo2020tyl": { "left": "2020tyl", "right": null, "up": null, "down": "Lewo2020tyl" },
+    "Prawo2023": { "left": "2023", "right": null, "up": null, "down": "Lewo2023" },
+    "Prawo2023tyl": { "left": "2023tyl", "right": null, "up": null, "down": "Lewo2023tyl" },
+    "Prawo2025": { "left": "2025", "right": null, "up": null, "down": "Lewo2025" },
+    "Prawo2025tyl": { "left": "2025tyl", "right": null, "up": null, "down": "Lewo2025tyl" },
+    "Prawo2024": { "left": "2024", "right": null, "up": null, "down": "Lewo2024" },
+    "Prawo2024tyl": { "left": "2024tyl", "right": null, "up": null, "down": "Lewo2024tyl" },
+    "Prawo2026": { "left": "2026", "right": null, "up": null, "down": "Lewo2026" },
+    "Prawo2026tyl": { "left": "2026tyl", "right": null, "up": null, "down": "Lewo2026tyl" },
+    "Prawo2029": { "left": "2029", "right": null, "up": null, "down": "Lewo2029" },
+    "Prawo2029tyl": { "left": "2029tyl", "right": null, "up": null, "down": "Lewo2029tyl" },
+    "Prawo2028": { "left": "2028", "right": null, "up": null, "down": "Lewo2028" },
+    "Prawo2028tyl": { "left": "2028tyl", "right": null, "up": null, "down": "Lewo2028tyl" },
+    "Prawo2031": { "left": "2031", "right": null, "up": null, "down": "Lewo2031" },
+    "Prawo2031tyl": { "left": "2031tyl", "right": null, "up": null, "down": "Lewo2031tyl" },
+    "Prawo2033": { "left": "2033", "right": "2033tyl", "up": "2035", "down": "Lewo2033" },
+    "Prawo2033tyl": { "left": "2033tyl", "right": "2033", "up": null, "down": "Lewo2033tyl" },
+    "Prawo2035": { "left": "2035", "right": null, "up": null, "down": "Lewo2035" },
+    "Prawo2035tyl": { "left": "2035tyl", "right": null, "up": null, "down": "Prawo2033tyl" },
+    "Prawo2037": { "left": "2037", "right": null, "up": null, "down": "Lewo2037" },
+    "Prawo2037tyl": { "left": "2037tyl", "right": null, "up": null, "down": "Lewo2037tyl" },
+    "Prawo2038": { "left": "2038", "right": null, "up": null, "down": "Lewo2038" },
+    "Prawo2038tyl": { "left": "2038tyl", "right": null, "up": null, "down": "Lewo2038tyl" },
+    "Prawo2039": { "left": "2039", "right": null, "up": null, "down": "Lewo2039" },
+    "Prawo2039tyl": { "left": "2039tyl", "right": null, "up": null, "down": "Lewo2039tyl" },
+    "Prawo2040": { "left": "2040", "right": null, "up": null, "down": "Lewo2040" },
+    "Prawo2040tyl": { "left": "2040tyl", "right": null, "up": null, "down": "Lewo2040tyl" },
+    "Prawo2041": { "left": "2041", "right": null, "up": null, "down": "Lewo2041" },
+    "Prawo2041tyl": { "left": "2041", "right": null, "up": null, "down": "Lewo2041tyl" },
+    "Prawo2042": { "left":  "2042", "right": null, "up": null, "down": "Prawo2042" },
+    "Prawo2042tyl": { "left": "2042tyl", "right": null, "up": null, "down": "Prawo2042tyl" },
+    "Prawo2043": { "left": "2043", "right": null, "up": null, "down": "Prawo2043" },
+    "Prawo2043tyl": { "left": "2043tyl", "right": null, "up": null, "down": "Prawo2043tyl" },
+    "Lewoaulamala": { "left": null, "right": "Aulamala", "up": null, "down": "Prawoaulamala" },
+    "Lewoaulamalatyl": { "left": null, "right": "Aulamalatyl", "up": null, "down": "Prawoaulamalatyl" },
+
+    "Prawo3002": { "left": "3002", "right": null, "up": null, "down": "Lewo3002" },
+    "Prawo3002tyl": { "left": "3002tyl", "right": null, "up": null, "down": "Lewo3002tyl" },
+    "Prawo3001": { "left": "3001", "right": null, "up": null, "down": "Lewo3001" },
+    "Prawo3001tyl": { "left": "3001tyl", "right": null, "up": null, "down": "Lewo3001tyl" },
+    "Prawo3004": { "left": "3004", "right": null, "up": null, "down": "Lewo3004" },
+    "Prawo3004tyl": { "left": "3004tyl", "right": null, "up": null, "down": "Lewo3004tyl" },
+    "Prawo3006": { "left": "3006", "right": null, "up": null, "down": "Lewo3006" },
+    "Prawo3006tyl": { "left": "3006tyl", "right": null, "up": null, "down": "Lewo3006tyl" },
+    "Prawo3003": { "left": "3003", "right": null, "up": null, "down": "Lewo3003" },
+    "Prawo3003tyl": { "left": "3003tyl", "right": null, "up": null, "down": "Lewo3003tyl" },
+    "Prawo3007": { "left": "3007", "right": null, "up": null, "down": "Lewo3007" },
+    "Prawo3007tyl": { "left": "3007tyl", "right": null, "up": null, "down": "Lewo3007tyl" },
+    "Prawo3010": { "left": "3010", "right": null, "up": null, "down": "Lewo3010" },
+    "Prawo3010tyl": { "left": "3010tyl", "right": null, "up": null, "down": "Lewo3010tyl" },
+    "Prawo3011": { "left": "3011", "right": null, "up": null, "down": "Lewo3011" },
+    "Prawo3011tyl": { "left": "3011tyl", "right": null, "up": null, "down": "Lewo3011tyl" },
+    "Prawo3017": { "left": "3017", "right": null, "up": null, "down": "Lewo3017" },
+    "Prawo3017tyl": { "left": "3017tyl", "right": null, "up": null, "down": "Lewo3017tyl" },
+    "Prawo3019": { "left": "3019", "right": null, "up": null, "down": "Lewo3019" },
+    "Prawo3019tyl": { "left": "3019tyl", "right": null, "up": null, "down": "Lewo3019tyl" },
+    "Prawo3021": { "left": "3021", "right": null, "up": null, "down": "Lewo3021" },
+    "Prawo3021tyl": { "left": "3021tyl", "right": null, "up": null, "down": "Lewo3021tyl" },
+    "Prawo3023": { "left": "3023", "right": null, "up": null, "down": "Lewo3023" },
+    "Prawo3023tyl": { "left": "3023tyl", "right": null, "up": null, "down": "Lewo3023tyl" },
+    "Prawo3022": { "left": "3022", "right": null, "up": null, "down": "Lewo3022" },
+    "Prawo3022tyl": { "left": "3022tyl", "right": null, "up": null, "down": "Lewo3022tyl" },
+    "Prawo3024": { "left": "3024", "right": null, "up": null, "down": "Lewo3024" },
+    "Prawo3024tyl": { "left": "3024tyl", "right": null, "up": null, "down": "Lewo3024tyl" },
+    "Prawo3027": { "left": "3027", "right": null, "up": null, "down": "Lewo3027" },
+    "Prawo3027tyl": { "left": "3027tyl", "right": null, "up": null, "down": "Lewo3027tyl" },
+    "Prawo3026": { "left": "3026", "right": null, "up": null, "down": "Lewo3026" },
+    "Prawo3026tyl": { "left": "3026tyl", "right": null, "up": null, "down": "Lewo3026tyl" },
+    "Prawo3029": { "left": "3029", "right": null, "up": null, "down": "Lewo3029" },
+    "Prawo3029tyl": { "left": "3029tyl", "right": null, "up": null, "down": "Lewo3029tyl" },
+    "Prawo3031": { "left": "3031", "right": "3031tyl", "up": "3033", "down": "Lewo3031" },
+    "Prawo3031tyl": { "left": "3031tyl", "right": "3031", "up": null, "down": "Lewo3031tyl" },
+    "Prawo3033": { "left": "3033", "right": null, "up": null, "down": "Lewo3033" },
+    "Prawo3033tyl": { "left": "3033tyl", "right": null, "up": null, "down": "Lewo3033tyl" },
+    "Prawo3035": { "left": "3035", "right": null, "up": null, "down": "Lewo3035" },
+    "Prawo3035tyl": { "left": "3035tyl", "right": null, "up": null, "down": "Lewo3035tyl" },
+    "Prawo3036": { "left": "3036", "right": null, "up": null, "down": "Lewo3036" },
+    "Prawo3036tyl": { "left": "3036tyl", "right": null, "up": null, "down": "Lewo3036tyl" },
+    "Prawo3038": { "left": "3038", "right": null, "up": null, "down": "Lewo3038" },
+    "Prawo3038tyl": { "left": "3038tyl", "right": null, "up": null, "down": "Lewo3038tyl" },
+    "Prawo3039": { "left": "3039", "right": null, "up": null, "down": "Lewo3039" },
+    "Prawo3039tyl": { "left": "3039tyl", "right": null, "up": null, "down": "Lewo3039tyl" },
+    "Prawo3040": { "left": "3040", "right": null, "up": null, "down": "Lewo3040" },
+    "Prawo3040tyl": { "left": "3040tyl", "right": null, "up": null, "down": "Lewo3040tyl" },
+    "Prawo3042": { "left": "3042", "right": null, "up": null, "down": "Lewo3042" },
+    "Prawo3042tyl": { "left": "3042tyl", "right": null, "up": null, "down": "Lewo3042tyl" },
+    "Prawo3044": { "left": "3044", "right": null, "up": null, "down": "Lewo3044" },
+    "Prawo3044tyl": { "left": "3044tyl", "right": null, "up": null, "down": "Lewo3044tyl" },
+    "Prawo3050": { "left": "3050", "right": null, "up": null, "down": "Lewo3050" },
+    "Prawo3050tyl": { "left": "3050tyl", "right": null, "up": null, "down": "Lewo3050tyl" },
+
+    // Kontynuuj zgodnie z podanymi danymi
+};
+
+
+
+        const pointsByFloor = {
+            "1": [
+                { x: 153, y: 175, name: "1004" },
+                { x: 153, y: 175, name: "1004tyl" },
+                { x: 153, y: 175, name: "Lewo1004" },
+                { x: 153, y: 175, name: "Prawo1004" },
+                { x: 153, y: 175, name: "Lewo1004tyl" },
+                { x: 153, y: 175, name: "Prawo1004tyl" },
+
+                { x: 196, y: 175, name: "1006" },
+                { x: 196, y: 175, name: "1006tyl" },
+                { x: 196, y: 175, name: "Lewo1006" },
+                { x: 196, y: 175, name: "Prawo1006" },
+                { x: 196, y: 175, name: "Lewo1006tyl" },
+                { x: 196, y: 175, name: "Prawo1006tyl" },
+
+                { x: 215, y: 175, name: "1009" },
+                { x: 215, y: 175, name: "1009tyl" },
+                { x: 215, y: 175, name: "Lewo1009" },
+                { x: 215, y: 175, name: "Prawo1009" },
+                { x: 215, y: 175, name: "Lewo1009tyl" },
+                { x: 215, y: 175, name: "Prawo1009tyl" },
+
+                { x: 234, y: 175, name: "1008" },
+                { x: 234, y: 175, name: "1008tyl" },
+                { x: 234, y: 175, name: "Lewo1008" },
+                { x: 234, y: 175, name: "Prawo1008" },
+                { x: 234, y: 175, name: "Lewo1008tyl" },
+                { x: 234, y: 175, name: "Prawo1008tyl" },
+
+                { x: 242, y: 175, name: "1013" },
+                { x: 242, y: 175, name: "1013tyl" },
+                { x: 242, y: 175, name: "Lewo1013" },
+                { x: 242, y: 175, name: "Prawo1013" },
+                { x: 242, y: 175, name: "Lewo1013tyl" },
+                { x: 242, y: 175, name: "Prawo1013tyl" },
+
+                { x: 250, y: 175, name: "1010" },
+                { x: 250, y: 175, name: "1010tyl" },
+                { x: 250, y: 175, name: "Lewo1010" },
+                { x: 250, y: 175, name: "Prawo1010" },
+                { x: 250, y: 175, name: "Lewo1010tyl" },
+                { x: 250, y: 175, name: "Prawo1010tyl" },
+
+                { x: 254, y: 175, name: "1015" },
+                { x: 254, y: 175, name: "1015tyl" },
+                { x: 254, y: 175, name: "Lewo1015" },
+                { x: 254, y: 175, name: "Prawo1015" },
+                { x: 254, y: 175, name: "Lewo1015tyl" },
+                { x: 254, y: 175, name: "Prawo1015tyl" },
+
+                { x: 260, y: 175, name: "1012" },
+                { x: 260, y: 175, name: "1012tyl" },
+                { x: 260, y: 175, name: "Lewo1012" },
+                { x: 260, y: 175, name: "Prawo1012" },
+                { x: 260, y: 175, name: "Lewo1012tyl" },
+                { x: 260, y: 175, name: "Prawo1012tyl" },
+
+                { x: 265, y: 175, name: "1017" },
+                { x: 265, y: 175, name: "1017tyl" },
+                { x: 265, y: 175, name: "Lewo1017" },
+                { x: 265, y: 175, name: "Prawo1017" },
+                { x: 265, y: 175, name: "Lewo1017tyl" },
+                { x: 265, y: 175, name: "Prawo1017tyl" },
+
+                { x: 280, y: 175, name: "1019" },
+                { x: 280, y: 175, name: "1019tyl" },
+                { x: 280, y: 175, name: "Lewo1019" },
+                { x: 280, y: 175, name: "Prawo1019" },
+                { x: 280, y: 175, name: "Lewo1019tyl" },
+                { x: 280, y: 175, name: "Prawo1019tyl" },
+
+                { x: 299, y: 175, name: "1014" },
+                { x: 299, y: 175, name: "1014tyl" },
+                { x: 299, y: 175, name: "Lewo1014" },
+                { x: 299, y: 175, name: "Prawo1014" },
+                { x: 299, y: 175, name: "Lewo1014tyl" },
+                { x: 299, y: 175, name: "Prawo1014tyl" },
+
+                { x: 318, y: 175, name: "1016" },
+                { x: 318, y: 175, name: "1016tyl" },
+                { x: 318, y: 175, name: "Lewo1016" },
+                { x: 318, y: 175, name: "Prawo1016" },
+                { x: 318, y: 175, name: "Lewo1016tyl" },
+                { x: 318, y: 175, name: "Prawo1016tyl" },
+
+                { x: 330, y: 175, name: "LewoKorytarz1018" },
+                { x: 330, y: 175, name: "Korytarz1018" },
+                { x: 330, y: 175, name: "Korytarz1018tyl" },
+                { x: 330, y: 175, name: "PrawoKorytarz1018" },
+                { x: 330, y: 175, name: "LewoKorytarz1018tyl" },
+                { x: 330, y: 175, name: "PrawoKorytarz1018tyl" },
+
+                { x: 330, y: 175, name: "LewoKorytarz1018" },
+                { x: 330, y: 175, name: "Korytarz1018" },
+                { x: 330, y: 175, name: "Korytarz1018tyl" },
+                { x: 330, y: 175, name: "PrawoKorytarz1018" },
+                { x: 330, y: 175, name: "LewoKorytarz1018tyl" },
+                { x: 330, y: 175, name: "PrawoKorytarz1018tyl" },
+
+                { x: 328, y: 170, name: "LewoKorytarz1021" },
+                { x: 328, y: 170, name: "Korytarz1021" },
+                { x: 328, y: 170, name: "Korytarz1021tyl" },
+                { x: 328, y: 170, name: "PrawoKorytarz1021" },
+                { x: 328, y: 170, name: "LewoKorytarz1021tyl" },
+                { x: 328, y: 170, name: "PrawoKorytarz1021tyl" },
+
+                { x: 328, y: 145, name: "1021" },
+                { x: 328, y: 145, name: "1021tyl" },
+                { x: 328, y: 145, name: "Lewo1021" },
+                { x: 328, y: 145, name: "Prawo1021" },
+                { x: 328, y: 145, name: "Lewo1021tyl" },
+                { x: 328, y: 145, name: "Prawo1021tyl" },
+
+                { x: 328, y: 135, name: "1023" },
+                { x: 328, y: 135, name: "1023tyl" },
+                { x: 328, y: 135, name: "Lewo1023" },
+                { x: 328, y: 135, name: "Prawo1023" },
+                { x: 328, y: 135, name: "Lewo1023tyl" },
+                { x: 328, y: 135, name: "Prawo1023tyl" },
+
+                { x: 328, y: 118, name: "1025" },
+                { x: 328, y: 118, name: "1025tyl" },
+                { x: 328, y: 118, name: "Lewo1025" },
+                { x: 328, y: 118, name: "Prawo1025" },
+                { x: 328, y: 118, name: "Lewo1025tyl" },
+                { x: 328, y: 118, name: "Prawo1025tyl" },
+
+                { x: 328, y: 108, name: "1027" },
+                { x: 328, y: 118, name: "1027tyl" },
+                { x: 328, y: 118, name: "Lewo1027" },
+                { x: 328, y: 118, name: "Prawo1027" },
+                { x: 328, y: 118, name: "Lewo1027tyl" },
+                { x: 328, y: 118, name: "Prawo1027tyl" },
+
+                { x: 328, y: 106, name: "1032" },
+                { x: 328, y: 116, name: "1032tyl" },
+                { x: 328, y: 116, name: "Lewo1032" },
+                { x: 328, y: 116, name: "Prawo1032" },
+                { x: 328, y: 116, name: "Lewo1032tyl" },
+                { x: 328, y: 116, name: "Prawo1032tyl" },
+
+                { x: 328, y: 99, name: "1029" },
+                { x: 328, y: 99, name: "1029tyl" },
+                { x: 328, y: 99, name: "Lewo1029" },
+                { x: 328, y: 99, name: "Prawo1029" },
+                { x: 328, y: 99, name: "Lewo1029tyl" },
+                { x: 328, y: 99, name: "Prawo1029tyl" },
+
+                { x: 328, y: 93, name: "1031" },
+                { x: 328, y: 93, name: "1031tyl" },
+                { x: 328, y: 93, name: "Lewo1031" },
+                { x: 328, y: 93, name: "Prawo1031" },
+                { x: 328, y: 93, name: "Lewo1031tyl" },
+                { x: 328, y: 93, name: "Prawo1031tyl" },
+
+                { x: 328, y: 85, name: "1036" },
+                { x: 328, y: 85, name: "1036tyl" },
+                { x: 328, y: 85, name: "Lewo1036" },
+                { x: 328, y: 85, name: "Prawo1036" },
+                { x: 328, y: 85, name: "Lewo1036tyl" },
+                { x: 328, y: 85, name: "Prawo1036tyl" },
+
+                { x: 328, y: 79, name: "1033" },
+                { x: 328, y: 79, name: "1033tyl" },
+                { x: 328, y: 79, name: "Lewo1033" },
+                { x: 328, y: 79, name: "Prawo1033" },
+                { x: 328, y: 79, name: "Lewo1033tyl" },
+                { x: 328, y: 79, name: "Prawo1033tyl" },
+
+                { x: 328, y: 71, name: "1038" },
+                { x: 328, y: 71, name: "1038tyl" },
+                { x: 328, y: 71, name: "Lewo1038" },
+                { x: 328, y: 71, name: "Prawo1038" },
+                { x: 328, y: 71, name: "Lewo1038tyl" },
+                { x: 328, y: 71, name: "Prawo1038tyl" },
+
+                { x: 328, y: 55, name: "1037" },
+                { x: 328, y: 55, name: "1037tyl" },
+                { x: 328, y: 55, name: "Lewo1037" },
+                { x: 328, y: 55, name: "Prawo1037" },
+                { x: 328, y: 55, name: "Lewo1037tyl" },
+                { x: 328, y: 55, name: "Prawo1037tyl" },
+
+                { x: 333, y: 49, name: "1039" },
+                { x: 333, y: 49, name: "1039tyl" },
+                { x: 333, y: 49, name: "Lewo1039" },
+                { x: 333, y: 49, name: "Prawo1039" },
+                { x: 333, y: 49, name: "Lewo1039tyl" },
+                { x: 333, y: 49, name: "Prawo1039tyl" },
+
+                { x: 345, y: 40, name: "1041" },
+                { x: 345, y: 40, name: "1041tyl" },
+                { x: 345, y: 40, name: "Lewo1041" },
+                { x: 345, y: 40, name: "Prawo1041" },
+                { x: 345, y: 40, name: "Lewo1041tyl" },
+                { x: 345, y: 40, name: "Prawo1041tyl" },
+
+                { x: 352, y: 35, name: "1043" },
+                { x: 352, y: 35, name: "1043tyl" },
+                { x: 352, y: 35, name: "Lewo1043" },
+                { x: 352, y: 35, name: "Prawo1043" },
+                { x: 352, y: 35, name: "Lewo1043tyl" },
+                { x: 352, y: 35, name: "Prawo1043tyl" },
+
+                { x: 125, y: 175, name: "Korytarz1" },
+                { x: 125, y: 175, name: "Korytarz1tyl" },
+                { x: 125, y: 175, name: "LewoKorytarz1" },
+                { x: 125, y: 175, name: "PrawoKorytarz1" },
+                { x: 125, y: 175, name: "LewoKorytarz1tyl" },
+                { x: 125, y: 175, name: "PrawoKorytarz1tyl" },
+
+                { x: 138, y: 163, name: "Korytarz2" },
+                { x: 138, y: 163, name: "Korytarz2tyl" },
+                { x: 138, y: 163, name: "LewoKorytarz2" },
+                { x: 138, y: 163, name: "PrawoKorytarz2" },
+                { x: 138, y: 163, name: "LewoKorytarz2tyl" },
+                { x: 138, y: 163, name: "PrawoKorytarz2tyl" },
+
+                { x: 125, y: 155, name: "1049" },
+                { x: 125, y: 155, name: "1049tyl" },
+                { x: 125, y: 155, name: "Lewo1049" },
+                { x: 125, y: 155, name: "Prawo1049" },
+                { x: 125, y: 155, name: "Lewo1049tyl" },
+                { x: 125, y: 155, name: "Prawo1049tyl" },
+
+                { x: 125, y: 148, name: "1051" },
+                { x: 125, y: 148, name: "1051tyl" },
+                { x: 125, y: 148, name: "Lewo1051" },
+                { x: 125, y: 148, name: "Prawo1051" },
+                { x: 125, y: 148, name: "Lewo1051tyl" },
+                { x: 125, y: 148, name: "Prawo1051tyl" },
+
+                { x: 125, y: 135, name: "1053" },
+                { x: 125, y: 135, name: "1053tyl" },
+                { x: 125, y: 135, name: "Lewo1053" },
+                { x: 125, y: 135, name: "Prawo1053" },
+                { x: 125, y: 135, name: "Lewo1053tyl" },
+                { x: 125, y: 135, name: "Prawo1053tyl" },
+
+                { x: 125, y: 125, name: "1055" },
+                { x: 125, y: 125, name: "1055tyl" },
+                { x: 125, y: 125, name: "Lewo1055" },
+                { x: 125, y: 125, name: "Prawo1055" },
+                { x: 125, y: 125, name: "Lewo1055tyl" },
+                { x: 125, y: 125, name: "Prawo1055tyl" },
+
+                { x: 122, y: 50, name: "Aula1056" },
+                { x: 122, y: 50, name: "Aula1056tyl" },
+                { x: 122, y: 50, name: "LewoAula1056" },
+                { x: 122, y: 50, name: "PrawoAula1056" },
+                { x: 122, y: 50, name: "Lewo1Aula1056tyl" },
+                { x: 122, y: 50, name: "PrawoAula1056tyl" },
+
+
+
+                // Dodaj punkty dla piętra 1 według potrzeb
+            ],
+            "2": [
+                { x: 165, y: 147, name: "Schody1" },
+                { x: 165, y: 147, name: "Schody1tyl" },
+                { x: 135, y: 165, name: "P1korytarz" },
+                { x: 135, y: 165, name: "Prawop1korytarz" },
+                { x: 135, y: 165, name: "Lewop1korytarz" },
+                { x: 135, y: 165, name: "P1korytarztyl" },
+                { x: 135, y: 165, name: "Prawop1" },
+                { x: 135, y: 165, name: "Lewoschody2" },
+                { x: 135, y: 165, name: "Schody2" },
+                { x: 135, y: 165, name: "P1korytarztyl" },
+                { x: 135, y: 165, name: "P1" },
+                { x: 135, y: 165, name: "P1tyl" },
+                { x: 153, y: 175, name: "2002" },
+                { x: 153, y: 175, name: "2002tyl" },
+                { x: 153, y: 175, name: "Lew2002" },
+                { x: 153, y: 175, name: "Prawo2002" },
+                { x: 153, y: 175, name: "Lewo2002tyl" },
+                { x: 153, y: 175, name: "Prawo2002tyl" },
+
+
+                { x: 196, y: 175, name: "2001" },
+                { x: 196, y: 175, name: "2001tyl" },
+                { x: 196, y: 175, name: "Lewo2001" },
+                { x: 196, y: 175, name: "Prawo2001" },
+                { x: 196, y: 175, name: "Lewo2001tyl" },
+                { x: 196, y: 175, name: "Prawo2001tyl" },
+
+                { x: 230, y: 175, name: "2006" },
+                { x: 230, y: 175, name: "2006tyl" },
+                { x: 230, y: 175, name: "Lewo2006" },
+                { x: 230, y: 175, name: "Prawo2006" },
+                { x: 230, y: 175, name: "Lewo2006tyl" },
+                { x: 230, y: 175, name: "Prawo2006tyl" },
+
+                { x: 242, y: 175, name: "2003" },
+                { x: 242, y: 175, name: "2003tyl" },
+                { x: 242, y: 175, name: "Lewo2003" },
+                { x: 242, y: 175, name: "Prawo2003" },
+                { x: 242, y: 175, name: "Lewo2003tyl" },
+                { x: 242, y: 175, name: "Prawo2003tyl" },
+
+                { x: 258, y: 175, name: "2005" },
+                { x: 258, y: 175, name: "2005tyl" },
+                { x: 258, y: 175, name: "Lewo2005" },
+                { x: 258, y: 175, name: "Prawo2005" },
+                { x: 258, y: 175, name: "Lewo2005tyl" },
+                { x: 258, y: 175, name: "Prawo2005tyl" },
+
+
+
+                { x: 275, y: 175, name: "2007" },
+                { x: 275, y: 175, name: "2007tyl" },
+                { x: 275, y: 175, name: "Lewo2007" },
+                { x: 275, y: 175, name: "Prawo2007" },
+                { x: 275, y: 175, name: "Lewo2007tyl" },
+                { x: 275, y: 175, name: "Prawo2007tyl" },
+
+                { x: 292, y: 175, name: "2009" },
+                { x: 292, y: 175, name: "2009tyl" },
+                { x: 292, y: 175, name: "Lewo2009" },
+                { x: 292, y: 175, name: "Prawo2009" },
+                { x: 292, y: 175, name: "Lewo2009tyl" },
+                { x: 292, y: 175, name: "Prawo2009tyl" },
+
+                { x: 305, y: 175, name: "2010" },
+                { x: 305, y: 175, name: "2010tyl" },
+                { x: 305, y: 175, name: "Lewo2010" },
+                { x: 305, y: 175, name: "Prawo2010" },
+                { x: 305, y: 175, name: "Lewo2010tyl" },
+                { x: 305, y: 175, name: "Prawo2010tyl" },
+
+                { x: 330, y: 175, name: "Lewo2012" },
+                { x: 330, y: 175, name: "2012" },
+                { x: 330, y: 175, name: "2012tyl" },
+                { x: 330, y: 175, name: "Prawo2012" },
+                { x: 330, y: 175, name: "Lewo2012tyl" },
+                { x: 330, y: 175, name: "Prawo2012tyl" },
+
+                { x: 328, y: 140, name: "2017" },
+                { x: 328, y: 140, name: "2017tyl" },
+                { x: 328, y: 140, name: "Lewo2017" },
+                { x: 328, y: 140, name: "Prawo2017" },
+                { x: 328, y: 140, name: "Lewo2017tyl" },
+                { x: 328, y: 140, name: "Prawo2017tyl" },
+
+                { x: 328, y: 135, name: "2019" },
+                { x: 328, y: 135, name: "2019tyl" },
+                { x: 328, y: 135, name: "Lewo2019" },
+                { x: 328, y: 135, name: "Prawo2019" },
+                { x: 328, y: 135, name: "Lewo2019tyl" },
+                { x: 328, y: 135, name: "Prawo2019tyl" },
+
+                { x: 328, y: 118, name: "2021" },
+                { x: 328, y: 118, name: "2021tyl" },
+                { x: 328, y: 118, name: "Lewo2021" },
+                { x: 328, y: 118, name: "Prawo2021" },
+                { x: 328, y: 118, name: "Lewo2021tyl" },
+                { x: 328, y: 118, name: "Prawo2021tyl" },
+
+                { x: 328, y: 118, name: "2021" },
+                { x: 328, y: 118, name: "2021tyl" },
+                { x: 328, y: 118, name: "Lewo2021" },
+                { x: 328, y: 118, name: "Prawo2021" },
+                { x: 328, y: 118, name: "Lewo2021tyl" },
+                { x: 328, y: 118, name: "Prawo2021tyl" },
+
+                { x: 328, y: 117, name: "2020" },
+                { x: 328, y: 117, name: "2020tyl" },
+                { x: 328, y: 117, name: "Lewo2020" },
+                { x: 328, y: 117, name: "Prawo2020" },
+                { x: 328, y: 117, name: "Lewo2020tyl" },
+                { x: 328, y: 117, name: "Prawo2020tyl" },
+
+                { x: 328, y: 110, name: "2023" },
+                { x: 328, y: 110, name: "2023tyl" },
+                { x: 328, y: 110, name: "Lewo2023" },
+                { x: 328, y: 110, name: "Prawo2023" },
+                { x: 328, y: 110, name: "Lewo2023tyl" },
+                { x: 328, y: 110, name: "Prawo2023tyl" },
+
+                { x: 328, y: 100, name: "2025" },
+                { x: 328, y: 100, name: "2025tyl" },
+                { x: 328, y: 100, name: "Lewo2025" },
+                { x: 328, y: 100, name: "Prawo2025" },
+                { x: 328, y: 100, name: "Lewo2025tyl" },
+                { x: 328, y: 100, name: "Prawo2025tyl" },
+
+                 { x: 328, y: 98, name: "2024" },
+                { x: 328, y: 98, name: "2024tyl" },
+                { x: 328, y: 98, name: "Lewo2024" },
+                { x: 328, y: 98, name: "Prawo2024" },
+                { x: 328, y: 98, name: "Lewo2024tyl" },
+                { x: 328, y: 98, name: "Prawo2024tyl" },
+
+                 { x: 328, y: 95, name: "2026" },
+                { x: 328, y: 95, name: "2026tyl" },
+                { x: 328, y: 95, name: "Lewo2026" },
+                { x: 328, y: 95, name: "Prawo2026" },
+                { x: 328, y: 95, name: "Lewo2026tyl" },
+                { x: 328, y: 95, name: "Prawo2026tyl" },
+
+                { x: 328, y: 80, name: "2029" },
+                { x: 328, y: 80, name: "2029tyl" },
+                { x: 328, y: 80, name: "Lewo2029" },
+                { x: 328, y: 80, name: "Prawo2029" },
+                { x: 328, y: 80, name: "Lewo2029tyl" },
+                { x: 328, y: 80, name: "Prawo2029tyl" },
+
+                { x: 328, y: 70, name: "2028" },
+                { x: 328, y: 70, name: "2028tyl" },
+                { x: 328, y: 70, name: "Lewo2028" },
+                { x: 328, y: 70, name: "Prawo2028" },
+                { x: 328, y: 70, name: "Lewo2028tyl" },
+                { x: 328, y: 70, name: "Prawo2028tyl" },
+
+                { x: 328, y: 72, name: "2031" },
+                { x: 328, y: 72, name: "2031tyl" },
+                { x: 328, y: 72, name: "Lewo2031" },
+                { x: 328, y: 72, name: "Prawo2031" },
+                { x: 328, y: 72, name: "Lewo2031tyl" },
+                { x: 328, y: 72, name: "Prawo2031tyl" },
+
+
+                { x: 328, y: 55, name: "2033" },
+                { x: 328, y: 55, name: "2033tyl" },
+                { x: 328, y: 55, name: "Lewo2033" },
+                { x: 328, y: 55, name: "Prawo2033" },
+                { x: 328, y: 55, name: "Lewo2033tyl" },
+                { x: 328, y: 55, name: "Prawo2033tyl" },
+
+                { x: 333, y: 49, name: "2035" },
+                { x: 333, y: 49, name: "2035tyl" },
+                { x: 333, y: 49, name: "Lewo2035" },
+                { x: 333, y: 49, name: "Prawo2035" },
+                { x: 333, y: 49, name: "Lewo2035tyl" },
+                { x: 333, y: 49, name: "Prawo2035tyl" },
+
+                { x: 345, y: 40, name: "2037" },
+                { x: 345, y: 40, name: "2037tyl" },
+                { x: 345, y: 40, name: "Lewo2037" },
+                { x: 345, y: 40, name: "Prawo2037" },
+                { x: 345, y: 40, name: "Lewo2037tyl" },
+                { x: 345, y: 40, name: "Prawo2037tyl" },
+
+                { x: 352, y: 35, name: "2038" },
+                { x: 352, y: 35, name: "2038tyl" },
+                { x: 352, y: 35, name: "Lewo2038" },
+                { x: 352, y: 35, name: "Prawo2038" },
+                { x: 352, y: 35, name: "Lewo2038tyl" },
+                { x: 352, y: 35, name: "Prawo2038tyl" },
+
+
+                { x: 125, y: 148, name: "2039" },
+                { x: 125, y: 148, name: "2039tyl" },
+                { x: 125, y: 148, name: "Lewo2039" },
+                { x: 125, y: 148, name: "Prawo2039" },
+                { x: 125, y: 148, name: "Lewo2039tyl" },
+                { x: 125, y: 148, name: "Prawo2039tyl" },
+
+
+                { x: 125, y: 135, name: "2040" },
+                { x: 125, y: 135, name: "2040tyl" },
+                { x: 125, y: 135, name: "Lewo2040" },
+                { x: 125, y: 135, name: "Prawo2040" },
+                { x: 125, y: 135, name: "Lewo2040tyl" },
+                { x: 125, y: 135, name: "Prawo2040tyl" },
+
+                { x: 125, y: 115, name: "2041" },
+                { x: 125, y: 115, name: "2041tyl" },
+                { x: 125, y: 115, name: "Lewo2041" },
+                { x: 125, y: 115, name: "Prawo2041" },
+                { x: 125, y: 115, name: "Lewo2041tyl" },
+                { x: 125, y: 115, name: "Prawo2041tyl" },
+
+                { x: 125, y: 110, name: "2042" },
+                { x: 125, y: 110, name: "2042tyl" },
+                { x: 125, y: 110, name: "Lewo2042" },
+                { x: 125, y: 110, name: "Prawo2042" },
+                { x: 125, y: 110, name: "Lewo2042tyl" },
+                { x: 125, y: 110, name: "Prawo2042tyl" },
+
+                { x: 125, y: 93, name: "2043" },
+                { x: 125, y: 93, name: "2043tyl" },
+                { x: 125, y: 93, name: "Lewo2043" },
+                { x: 125, y: 93, name: "Prawo2043" },
+                { x: 125, y: 93, name: "Lewo2043tyl" },
+                { x: 125, y: 93, name: "Prawo2043tyl" },
+
+                { x: 125, y: 80, name: "Aulamala" },
+                { x: 125, y: 80, name: "Aulamalatyl" },
+                { x: 125, y: 80, name: "LewoAulamala3" },
+                { x: 125, y: 80, name: "PrawoAulamala3" },
+                { x: 125, y: 80, name: "LewoAulamalatyl" },
+                { x: 125, y: 80, name: "PrawoAulamalatyl" },
+
+
+            ],
+            "3": [
+               { x: 165, y: 147, name: "Schody3pietro" },
+                { x: 165, y: 147, name: "Schody3pietrotyl" },
+                { x: 135, y: 165, name: "3pietrotylsrodektyl" },
+                { x: 135, y: 165, name: "3pietrotylsrodek" },
+                { x: 135, y: 165, name: "3pietro" },
+                { x: 135, y: 165, name: "Prawo3pietro" },
+                { x: 135, y: 165, name: "Lewo3pietrotylsrodektyl" },
+                { x: 135, y: 165, name: "Prawo3pietrotylsrodektyl" },
+
+
+
+
+
+                { x: 153, y: 175, name: "3002" },
+                { x: 153, y: 175, name: "3002tyl" },
+                { x: 153, y: 175, name: "Lew3002" },
+                { x: 153, y: 175, name: "Prawo3002" },
+                { x: 153, y: 175, name: "Lewo3002tyl" },
+                { x: 153, y: 175, name: "Prawo3002tyl" },
+
+                { x: 192, y: 175, name: "3001" },
+                { x: 192, y: 175, name: "3001tyl" },
+                { x: 192, y: 175, name: "Lewo3001" },
+                { x: 192, y: 175, name: "Prawo3001" },
+                { x: 192, y: 175, name: "Lewo3001tyl" },
+                { x: 192, y: 175, name: "Prawo3001tyl" },
+
+                { x: 196, y: 175, name: "3004" },
+                { x: 196, y: 175, name: "3004tyl" },
+                { x: 196, y: 175, name: "Lewo3004" },
+                { x: 196, y: 175, name: "Prawo3004" },
+                { x: 196, y: 175, name: "Lewo3004tyl" },
+                { x: 196, y: 175, name: "Prawo3004tyl" },
+
+                { x: 235, y: 175, name: "3006" },
+                { x: 235, y: 175, name: "3006tyl" },
+                { x: 235, y: 175, name: "Lewo3006" },
+                { x: 235, y: 175, name: "Prawo3006" },
+                { x: 235, y: 175, name: "Lewo3006tyl" },
+                { x: 235, y: 175, name: "Prawo3006tyl" },
+
+                { x: 242, y: 175, name: "3003" },
+                { x: 242, y: 175, name: "3003tyl" },
+                { x: 242, y: 175, name: "Lewo3003" },
+                { x: 242, y: 175, name: "Prawo3003" },
+                { x: 242, y: 175, name: "Lewo3003tyl" },
+                { x: 242, y: 175, name: "Prawo3003tyl" },
+
+                { x: 275, y: 175, name: "3007" },
+                { x: 275, y: 175, name: "3007tyl" },
+                { x: 275, y: 175, name: "Lewo3007" },
+                { x: 275, y: 175, name: "Prawo3007" },
+                { x: 275, y: 175, name: "Lewo3007tyl" },
+                { x: 275, y: 175, name: "Prawo3007tyl" },
+
+
+                { x: 320, y: 175, name: "3010" },
+                { x: 320, y: 175, name: "Lewo3010" },
+                { x: 320, y: 175, name: "3010tyl" },
+                { x: 320, y: 175, name: "Prawo3010" },
+                { x: 320, y: 175, name: "Lewo3010tyl" },
+                { x: 320, y: 175, name: "Prawo3010tyl" },
+
+                { x: 330, y: 175, name: "Lewo3011" },
+                { x: 330, y: 175, name: "3011" },
+                { x: 330, y: 175, name: "3011tyl" },
+                { x: 330, y: 175, name: "Prawo3011" },
+                { x: 330, y: 175, name: "Lewo3011tyl" },
+                { x: 330, y: 175, name: "Prawo3011tyl" },
+
+                { x: 328, y: 135, name: "3017" },
+                { x: 328, y: 135, name: "3017tyl" },
+                { x: 328, y: 135, name: "Lewo3017" },
+                { x: 328, y: 135, name: "Prawo3017" },
+                { x: 328, y: 135, name: "Lewo3017tyl" },
+                { x: 328, y: 135, name: "Prawo3017tyl" },
+
+                { x: 328, y: 118, name: "3019" },
+                { x: 328, y: 118, name: "3019tyl" },
+                { x: 328, y: 118, name: "Lewo3019" },
+                { x: 328, y: 118, name: "Prawo3019" },
+                { x: 328, y: 118, name: "Lewo3019tyl" },
+                { x: 328, y: 118, name: "Prawo3019tyl" },
+
+                { x: 328, y: 109, name: "3021" },
+                { x: 328, y: 109, name: "3021tyl" },
+                { x: 328, y: 109, name: "Lewo3021" },
+                { x: 328, y: 109, name: "Prawo3021" },
+                { x: 328, y: 109, name: "Lewo3021tyl" },
+                { x: 328, y: 109, name: "Prawo3021tyl" },
+
+                { x: 328, y: 100, name: "3023" },
+                { x: 328, y: 100, name: "30230tyl" },
+                { x: 328, y: 100, name: "Lewo3023" },
+                { x: 328, y: 100, name: "Prawo3023" },
+                { x: 328, y: 100, name: "Lewo3023tyl" },
+                { x: 328, y: 100, name: "Prawo3023tyl" },
+
+                { x: 328, y: 95, name: "3022" },
+                { x: 328, y: 95, name: "3022tyl" },
+                { x: 328, y: 95, name: "Lewo3022" },
+                { x: 328, y: 95, name: "Prawo3022" },
+                { x: 328, y: 95, name: "Lewo3022tyl" },
+                { x: 328, y: 95, name: "Prawo3022tyl" },
+
+                { x: 328, y: 83, name: "3024" },
+                { x: 328, y: 83, name: "3024tyl" },
+                { x: 328, y: 83, name: "Lewo3024" },
+                { x: 328, y: 83, name: "Prawo3024" },
+                { x: 328, y: 83, name: "Lewo3024tyl" },
+                { x: 328, y: 83, name: "Prawo3024tyl" },
+
+                 { x: 328, y: 80, name: "3027" },
+                { x: 328, y: 80, name: "3027tyl" },
+                { x: 328, y: 80, name: "Lewo3027" },
+                { x: 328, y: 80, name: "Prawo3027" },
+                { x: 328, y: 80, name: "Lew3027tyl" },
+                { x: 328, y: 80, name: "Prawo3027tyl" },
+
+                 { x: 328, y: 73, name: "3026" },
+                { x: 328, y: 73, name: "3026tyl" },
+                { x: 328, y: 73, name: "Lewo3026" },
+                { x: 328, y: 73, name: "Prawo3026" },
+                { x: 328, y: 73, name: "Lewo3026tyl" },
+                { x: 328, y: 73, name: "Prawo3026tyl" },
+
+                { x: 328, y: 70, name: "3029" },
+                { x: 328, y: 70, name: "3029tyl" },
+                { x: 328, y: 70, name: "Lewo3029" },
+                { x: 328, y: 70, name: "Prawo3029" },
+                { x: 328, y: 70, name: "Lewo3029tyl" },
+                { x: 328, y: 70, name: "Prawo3029tyl" },
+
+                { x: 323, y: 58, name: "3031" },
+                { x: 323, y: 58, name: "3031tyl" },
+                { x: 323, y: 58, name: "Lewo3031" },
+                { x: 323, y: 58, name: "Prawo3031" },
+                { x: 323, y: 58, name: "Lewo3031tyl" },
+                { x: 323, y: 58, name: "Prawo3031tyl" },
+
+                { x: 333, y: 49, name: "3033" },
+                { x: 333, y: 49, name: "3033tyl" },
+                { x: 333, y: 49, name: "Lewo3033" },
+                { x: 333, y: 49, name: "Prawo3033" },
+                { x: 333, y: 49, name: "Lewo3033tyl" },
+                { x: 333, y: 49, name: "Prawo3033tyl" },
+
+                { x: 345, y: 40, name: "3035" },
+                { x: 345, y: 40, name: "3035tyl" },
+                { x: 345, y: 40, name: "Lewo3035" },
+                { x: 345, y: 40, name: "Prawo3035" },
+                { x: 345, y: 40, name: "Lewo3035tyl" },
+                { x: 345, y: 40, name: "Prawo3035tyl" },
+
+                { x: 352, y: 35, name: "3036" },
+                { x: 352, y: 35, name: "3036tyl" },
+                { x: 352, y: 35, name: "Lewo3036" },
+                { x: 352, y: 35, name: "Prawo3036" },
+                { x: 352, y: 35, name: "Lewo3036tyl" },
+                { x: 352, y: 35, name: "Prawo3036tyl" },
+
+
+                { x: 125, y: 148, name: "3038" },
+                { x: 125, y: 148, name: "3038tyl" },
+                { x: 125, y: 148, name: "Lewo3038" },
+                { x: 125, y: 148, name: "Prawo3038" },
+                { x: 125, y: 148, name: "Lewo3038tyl" },
+                { x: 125, y: 148, name: "Prawo3038tyl" },
+
+
+                { x: 125, y: 135, name: "3039" },
+                { x: 125, y: 135, name: "3039tyl" },
+                { x: 125, y: 135, name: "Lewo3039" },
+                { x: 125, y: 135, name: "Prawo3039" },
+                { x: 125, y: 135, name: "Lewo3039tyl" },
+                { x: 125, y: 135, name: "Prawo3039tyl" },
+
+                { x: 125, y: 125, name: "3040" },
+                { x: 125, y: 125, name: "3040tyl" },
+                { x: 125, y: 125, name: "Lewo3040" },
+                { x: 125, y: 125, name: "Prawo3040" },
+                { x: 125, y: 125, name: "Lewo3040tyl" },
+                { x: 125, y: 125, name: "Prawo3040tyl" },
+
+                { x: 125, y: 110, name: "3042" },
+                { x: 125, y: 110, name: "3042tyl" },
+                { x: 125, y: 110, name: "Lewo3042" },
+                { x: 125, y: 110, name: "Prawo3042" },
+                { x: 125, y: 110, name: "Lewo3042tyl" },
+                { x: 125, y: 110, name: "Prawo3042tyl" },
+
+                { x: 125, y: 93, name: "3044" },
+                { x: 125, y: 93, name: "3044tyl" },
+                { x: 125, y: 93, name: "Lewo3044" },
+                { x: 125, y: 93, name: "Prawo3044" },
+                { x: 125, y: 93, name: "Lewo3044tyl" },
+                { x: 125, y: 93, name: "Prawo3044tyl" },
+
+                { x: 125, y: 80, name: "3050" },
+                { x: 125, y: 80, name: "3050tyl" },
+                { x: 125, y: 80, name: "Lewo3050" },
+                { x: 125, y: 80, name: "Prawo3050" },
+                { x: 125, y: 80, name: "Lewo3050tyl" },
+                { x: 125, y: 80, name: "Prawo3050tyl" },
+            ]
+        };
+
+        // Funkcja aktualizująca zdjęcie
+        function updatePhoto(index) {
+            updateNavigationButtons();
+            const photoContainer = document.getElementById('current-photo');
+            photoContainer.style.opacity = 0.7;
+            setTimeout(function () {
+                photoContainer.src = "{{ url_for('static', filename='') }}" + photos[index];
+                photoContainer.style.opacity = 1;
+                updatePointsVisibility(photos[index].split('.')[0]); // Aktualizuj widoczność punktów
+            }, 300);
+        }
+
+
+        // Funkcja pokazująca lewe zdjęcie
+        function showLeftPhoto() {
+            const currentPhoto = photos[currentPhotoIndex].split('.')[0];
+            const nextPhoto = photoGraph[currentPhoto].left;
+            if (nextPhoto) {
+                currentPhotoIndex = photos.findIndex(photo => photo.includes(nextPhoto + ".jpg"));
+                updatePhoto(currentPhotoIndex);
+            }
+        }
+
+        // Funkcja pokazująca prawe zdjęcie
+        function showRightPhoto() {
+            const currentPhoto = photos[currentPhotoIndex].split('.')[0];
+            const nextPhoto = photoGraph[currentPhoto].right;
+            if (nextPhoto) {
+                currentPhotoIndex = photos.findIndex(photo => photo.includes(nextPhoto + ".jpg"));
+                updatePhoto(currentPhotoIndex);
+            }
+        }
+
+        // Funkcja pokazująca zdjęcie powyżej
+        function showUpPhoto() {
+            const currentPhoto = photos[currentPhotoIndex].split('.')[0];
+            const nextPhoto = photoGraph[currentPhoto].up;
+            if (nextPhoto) {
+                currentPhotoIndex = photos.findIndex(photo => photo.includes(nextPhoto + ".jpg"));
+                updatePhoto(currentPhotoIndex);
+            }
+        }
+
+        // Funkcja pokazująca zdjęcie poniżej
+        function showDownPhoto() {
+            const currentPhoto = photos[currentPhotoIndex].split('.')[0];
+            const nextPhoto = photoGraph[currentPhoto].down;
+            if (nextPhoto) {
+                currentPhotoIndex = photos.findIndex(photo => photo.includes(nextPhoto + ".jpg"));
+                updatePhoto(currentPhotoIndex);
+            }
+        }
+
+        function updateNavigationButtons() {
+            // Aktualizuje widoczność przycisków nawigacyjnych
+            const currentPhoto = photos[currentPhotoIndex].split('.')[0];
+            const navigation = photoGraph[currentPhoto];
+
+            document.querySelector('.arrow-left').style.display = navigation.left ? 'block' : 'none';
+            document.querySelector('.arrow-right').style.display = navigation.right ? 'block' : 'none';
+            document.querySelector('.arrow-up').style.display = navigation.up ? 'block' : 'none';
+            document.querySelector('.arrow-down').style.display = navigation.down ? 'block' : 'none';
+        }
+
+        // Funkcja dodająca punkt na mapie
+        function addPoint(x, y, name) {
+            // Tworzymy nowy punkt jako element div
+            const point = document.createElement('div');
+            point.classList.add('point');
+            point.style.left = x + 'px';
+            point.style.top = y + 'px';
+            point.dataset.name = name; // Dodajemy dataset z nazwą punktu
+
+            // Dodajemy obsługę kliknięcia na punkcie
+            point.addEventListener('click', function() {
+                const photoIndex = photos.findIndex(photo => photo.includes(name + ".jpg"));
+                if (photoIndex !== -1) {
+                    currentPhotoIndex = photoIndex;
+                    updatePhoto(currentPhotoIndex);
+                } else {
+                    console.error(`Nie znaleziono zdjęcia dla punktu ${name}.`);
+                }
+            });
+
+            // Dodaj punkt do kontenera mapy
+            document.getElementById('map-container').appendChild(point);
+        }
+
+        // Funkcja zmieniająca piętro kampusu
+        function changeFloor() {
+            const selector = document.getElementById('floor-selector');
+            const floor = selector.value;
+            switch (floor) {
+                case "1":
+                    document.getElementById('map').src = "{{ url_for('static', filename='kampus_1_pietro.png') }}";
+                    break;
+                case "2":
+                    document.getElementById('map').src = "{{ url_for('static', filename='kampus_2_pietro.png') }}";
+                    break;
+                case "3":
+                    document.getElementById('map').src = "{{ url_for('static', filename='kampus_3_pietro.png') }}";
+                    break;
+                default:
+                    break;
+            }
+
+            // Usuń istniejące punkty z mapy
+            const mapContainer = document.getElementById('map-container');
+            const existingPoints = mapContainer.querySelectorAll('.point');
+            existingPoints.forEach(point => point.remove());
+
+            // Dodaj punkty dla wybranego piętra
+            if (pointsByFloor[floor]) {
+                pointsByFloor[floor].forEach(point => {
+                    addPoint(point.x, point.y, point.name);
+                });
+            }
+
+            // Aktualizuj widoczność punktów
+            updatePointsVisibility(photos[currentPhotoIndex].split('.')[0]);
+        }
+
+        // Funkcja aktualizująca widoczność punktów
+        function updatePointsVisibility(currentPhotoName) {
+            const mapContainer = document.getElementById('map-container');
+            const points = mapContainer.querySelectorAll('.point');
+            points.forEach(point => {
+                if (point.dataset.name === currentPhotoName) {
+                    point.style.display = 'block';
+                } else {
+                    point.style.display = 'none';
+                }
+            });
+        }
+
+        // Obsługa kliknięcia na mapie
+        function handleMapClick(event) {
+            const floor = document.getElementById('floor-selector').value;
+            const offsetX = event.offsetX; // Pozycja X kliknięcia wewnątrz mapy
+            const offsetY = event.offsetY; // Pozycja Y kliknięcia wewnątrz mapy
+
+            // Znajdujemy najbliższy punkt na mapie dla danego kliknięcia
+            const closestPoint = findClosestPoint(offsetX, offsetY, floor);
+
+            if (closestPoint) {
+                // Znaleziono najbliższy punkt, przenosimy do odpowiadającego zdjęcia
+                const photoIndex = photos.findIndex(photo => photo.includes(closestPoint.name + ".jpg"));
+                if (photoIndex !== -1) {
+                    currentPhotoIndex = photoIndex;
+                    updatePhoto(currentPhotoIndex);
+                } else {
+                    console.error(`Nie znaleziono zdjęcia dla punktu ${closestPoint.name}.`);
+                }
+            }
+        }
+
+        // Funkcja znajdująca najbliższy punkt na mapie
+        function findClosestPoint(x, y, floor) {
+            const points = pointsByFloor[floor];
+            if (!points || points.length === 0) {
+                return null;
+            }
+
+            let closestPoint = points[0];
+            let closestDistance = distance(x, y, closestPoint.x, closestPoint.y);
+
+            for (let i = 1; i < points.length; i++) {
+                const point = points[i];
+                const dist = distance(x, y, point.x, point.y);
+                if (dist < closestDistance) {
+                    closestPoint = point;
+                    closestDistance = dist;
+                }
+            }
+
+            return closestPoint;
+        }
+
+        // Funkcja obliczająca odległość między dwoma punktami
+        function distance(x1, y1, x2, y2) {
+            return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+        }
+
+        // Początkowe ustawienie wyboru piętra
+        document.getElementById('floor-selector').value = "1";
+        changeFloor(); // Wywołanie funkcji zmiany piętra na początku
+        updatePointsVisibility(photos[currentPhotoIndex].split('.')[0]); // Aktualizuj widoczność punktów na początku
+    </script>
+</body>
+</html>

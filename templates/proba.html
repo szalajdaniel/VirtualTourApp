@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Przewijane Zdjęcia</title>
+    <style>
+     body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#photo-container {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+}
+
+.photo-container-inner {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100%;
+}
+
+.photo {
+    max-height: 100%;
+    display: block;
+    margin: 0 auto;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.photo.fade-out {
+    opacity: 0;
+}
+
+.photo.fade-in {
+    opacity: 1;
+}
+
+.arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 24px;
+    color: white;
+    background-color: rgba(0, 0, 0, 0.5);
+    padding: 10px;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+
+.arrow-left {
+    left: 20px;
+}
+
+.arrow-right {
+    right: 20px;
+}
+
+.arrow-up {
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-50%);
+}
+
+.arrow-down {
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(50%);
+}
+    </style>
+</head>
+<body>
+    <div id="photo-container">
+        <div class="photo-container-inner">
+            <img id="current-photo" src="{{ url_for('static', filename=photos[0]) }}" alt="Zdjęcie" class="photo" style="width: 1200px; height: 800px;">
+        </div>
+        <button class="arrow arrow-up" onclick="showUpPhoto()">&#9650;</button>
+        <button class="arrow arrow-left" onclick="showPrevPhoto()">&#10094;</button>
+        <button class="arrow arrow-right" onclick="showNextPhoto()">&#10095;</button>
+        <button class="arrow arrow-down" onclick="showPrevBasePhoto()">&#9660;</button>
+    </div>
+    <script>
+        var photos = {{ photos | tojson }};
+        var currentIndex = 0;
+        var photoElement = document.querySelector('.photo');
+        var PreviewIndex = 0;
+
+        function showPhoto(index) {
+            if (index < 0) {
+                index = photos.length - 1;
+            } else if (index >= photos.length) {
+                index = 0;
+            }
+
+            photoElement.style.opacity = 0.7;
+            setTimeout(function () {
+                photoElement.src = "{{ url_for('static', filename='') }}" + photos[index];
+                photoElement.style.opacity = 0.5;
+                photoElement.style.opacity = 1;
+            }, 300);
+
+            currentIndex = index;
+
+            // Sprawdzanie, czy istnieje zdjęcie z przedrostkiem "Prawo"
+            var basePhoto = photos[currentIndex];
+            var nextPhotoExists = photos.includes('Prawo' + basePhoto);
+            var prevPhotoExists = photos.includes('Lewo' + basePhoto);
+
+            if (nextPhotoExists) {
+                document.querySelector('.arrow-right').style.display = 'block';
+            } else {
+                document.querySelector('.arrow-right').style.display = 'none';
+            }
+            if (prevPhotoExists) {
+                document.querySelector('.arrow-left').style.display = 'block';
+            } else {
+                document.querySelector('.arrow-left').style.display = 'none';
+            }
+        }
+
+        function showNextPhoto() {
+
+            // Tworzymy nazwę zdjęcia z przedrostkiem "Prawo" i bieżącym indeksem
+            var targetPhotoName = "Prawo" + photos[currentIndex];
+            var nextPhotoIndex = -1;
+
+            // Szukamy zdjęcia o nazwie targetPhotoName
+            for (var i = 0; i < photos.length; i++) {
+                if (photos[i] === targetPhotoName) {
+                    nextPhotoIndex = i;
+                    break;
+                }
+            }
+
+            // Jeśli nie znaleziono zdjęcia z nazwą "PrawoX", nie zmieniamy zdjęcia
+            if (nextPhotoIndex === -1) {
+                return;
+            }
+
+            // Wyświetlamy zdjęcie o znalezionym indeksie nextPhotoIndex
+            showPhoto(nextPhotoIndex);
+        }
+
+        function showPrevPhoto() {
+        PreviewIndex=currentIndex;
+            // Tworzymy nazwę zdjęcia z przedrostkiem "Lewo" i bieżącym indeksem
+            var targetPhotoName = "Lewo" + photos[currentIndex];
+            var prevPhotoIndex = -1;
+
+            // Szukamy zdjęcia o nazwie targetPhotoName
+            for (var i = 0; i < photos.length; i++) {
+                if (photos[i] === targetPhotoName) {
+                    prevPhotoIndex = i;
+                    break;
+                }
+            }
+
+            // Jeśli nie znaleziono zdjęcia z nazwą "LewoX", nie zmieniamy zdjęcia
+            if (prevPhotoIndex === -1) {
+                return;
+            }
+
+            // Wyświetlamy zdjęcie o znalezionym indeksie prevPhotoIndex
+            showPhoto(prevPhotoIndex);
+        }
+
+        function showUpPhoto() {
+            PreviewIndex=currentIndex;
+            var nextIndex = currentIndex + 1;
+            while (nextIndex < photos.length) {
+                if (!photos[nextIndex].includes('Lewo') && !photos[nextIndex].includes('Prawo')) {
+                    break;
+                }
+                nextIndex++;
+            }
+
+
+
+            if (nextIndex >= photos.length) {
+                nextIndex = 0;
+                while (nextIndex < photos.length) {
+                    if (!photos[nextIndex].includes('Lewo') && !photos[nextIndex].includes('Prawo')) {
+                        break;
+                    }
+                    nextIndex++;
+                }
+            }
+
+            showPhoto(nextIndex);
+        }
+
+        function showPrevBasePhoto() {
+            var prevIndex = currentIndex - 1;
+            while (prevIndex >= 0) {
+                if (!photos[prevIndex].includes('Lewo') && !photos[prevIndex].includes('Prawo')) {
+                    break;
+                }
+                prevIndex-2 ;
+            }
+
+            if (prevIndex < 0) {
+                prevIndex = photos.length - 1;
+                while (prevIndex >= 0) {
+                    if (!photos[prevIndex].includes('Lewo') && !photos[prevIndex].includes('Prawo')) {
+
+                    }
+                    else{
+
+                    }
+                    prevIndex--;
+                }
+            }
+
+
+            showPhoto(prevIndex);
+        }
+
+        // Inicjalizacja stanu przycisku strzałek
+        document.addEventListener('DOMContentLoaded', function () {
+            showPhoto(0);
+        });
+    </script>
+</body>
+</html>
